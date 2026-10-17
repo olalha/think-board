@@ -5,7 +5,7 @@
 # The entrypoint becomes the data folder's owner (PUID/PGID) before starting,
 # so one image serves any machine and user — see docs/install.md.
 
-FROM node:24-bookworm-slim AS build
+FROM node:25-bookworm-slim AS build
 # node-pty has no Linux prebuilds: compile it here, never in the runtime image.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends python3 make g++ \
@@ -16,7 +16,7 @@ RUN npm ci --no-audit --no-fund
 COPY . .
 RUN npm run build && npm prune --omit=dev --no-audit --no-fund
 
-FROM node:24-bookworm-slim
+FROM node:25-bookworm-slim
 # fonts-inter: text drawn on images renders in the app's own typeface.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends git ca-certificates fonts-inter \
