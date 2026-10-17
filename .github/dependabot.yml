@@ -1,21 +1,33 @@
+# Security fixes only. Version updates are switched off (open-pull-requests-limit: 0);
+# Dependabot still opens a pull request as soon as a dependency has a published
+# vulnerability, one grouped pull request per ecosystem. The monthly schedule is
+# required by the file format and only matters if version updates are turned on.
 version: 2
 updates:
   - package-ecosystem: npm
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
+    open-pull-requests-limit: 0
     groups:
-      minor-and-patch:
-        update-types: [minor, patch]
-    open-pull-requests-limit: 5
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
+    open-pull-requests-limit: 0
     groups:
-      actions:
+      security:
+        applies-to: security-updates
         patterns: ["*"]
   - package-ecosystem: docker
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
+    open-pull-requests-limit: 0
+    groups:
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
