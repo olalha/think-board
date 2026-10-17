@@ -1,0 +1,89 @@
+{
+  "nodes": [
+    {
+      "id": "grp-start-here",
+      "type": "group",
+      "x": -40,
+      "y": -80,
+      "width": 940,
+      "height": 700,
+      "label": "Start here"
+    },
+    {
+      "id": "welcome",
+      "type": "file",
+      "file": "welcome.md",
+      "x": 0,
+      "y": 0,
+      "width": 420,
+      "height": 580
+    },
+    {
+      "id": "how-it-works",
+      "type": "file",
+      "file": "how-it-works.mmd",
+      "x": 480,
+      "y": 0,
+      "width": 380,
+      "height": 580
+    },
+    {
+      "id": "weigh-your-options",
+      "type": "file",
+      "file": "weigh-your-options.html",
+      "x": 940,
+      "y": 0,
+      "width": 460,
+      "height": 460
+    },
+    {
+      "id": "first-sketch",
+      "type": "file",
+      "file": "first-sketch.png",
+      "x": 0,
+      "y": 680,
+      "width": 480,
+      "height": 360
+    }
+  ],
+  "edges": [
+    {
+      "id": "e-welcome-how-it-works",
+      "fromNode": "welcome",
+      "toNode": "how-it-works"
+    },
+    {
+      "id": "e-how-it-works-weigh-your-options",
+      "fromNode": "how-it-works",
+      "toNode": "weigh-your-options",
+      "label": "try one",
+      "style": "dashed"
+    },
+    {
+      "id": "e-welcome-first-sketch",
+      "fromNode": "welcome",
+      "toNode": "first-sketch",
+      "label": "draw on it",
+      "style": "dotted"
+    }
+  ],
+  "views": [
+    {
+      "id": "v-start-here",
+      "name": "Start here",
+      "x": -120,
+      "y": -160,
+      "width": 1100,
+      "height": 860,
+      "target": "grp-start-here"
+    },
+    {
+      "id": "v-everything",
+      "name": "Everything",
+      "x": -120,
+      "y": -160,
+      "width": 1600,
+      "height": 1280
+    }
+  ]
+}

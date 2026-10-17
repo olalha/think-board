@@ -1,0 +1,109 @@
+/* ---- tablets and phones ------------------------------------------------------------------- */
+/* A narrow top bar (a phone, or a tablet with the chat open): "+" replaces the block toolbar. */
+.add-btn {
+  display: none;
+}
+.topbar-left {
+  grid-column: 1;
+}
+.topbar-right {
+  grid-column: 3;
+}
+@container topbar (max-width: 600px) {
+  .topbar .toolbar,
+  .topbar-right [aria-label="Help"] {
+    display: none;
+  }
+  .add-btn {
+    display: grid;
+  }
+}
+
+@media (max-width: 900px) {
+  /* The History banner wraps: the moment on one row, the actions on the next. */
+  .tt-bar {
+    flex-wrap: wrap;
+    justify-content: center;
+    row-gap: 6px;
+    width: calc(100% - var(--side-eff) - var(--chat-eff) - 24px);
+    max-width: none;
+  }
+  .tt-bar .tt-text {
+    flex: 1 1 60%;
+    min-width: 0;
+  }
+  .tt-bar .tt-legend,
+  .tt-bar kbd {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  /* Panels are full-screen sheets, one at a time, over the canvas (not beside it). */
+  .board.side-open,
+  .board.chat-open {
+    --side-eff: 0px;
+    --chat-eff: 0px;
+  }
+  .chat-panel,
+  .side-panel {
+    width: 100vw !important;
+  }
+  .chat-resize,
+  .side-resize {
+    display: none;
+  }
+  .board .topbar,
+  .board.chat-open .topbar {
+    top: calc(10px + env(safe-area-inset-top));
+    left: 8px;
+    right: 8px;
+  }
+  /* The rail becomes a row along the bottom, within thumb's reach. */
+  .side-panel {
+    flex-direction: column-reverse;
+  }
+  .side-rail {
+    flex-direction: row;
+    justify-content: space-around;
+    width: 100%;
+    height: calc(58px + env(safe-area-inset-bottom));
+    padding: 0 8px env(safe-area-inset-bottom);
+    border-right: none;
+    border-top: 1px solid var(--border);
+  }
+  .side-rail button {
+    width: 44px;
+    height: 44px;
+  }
+  /* Clear of the notch / status bar when the page runs under it. */
+  .side-head {
+    height: calc(52px + env(safe-area-inset-top));
+    padding-top: env(safe-area-inset-top);
+  }
+  .chat-head {
+    height: calc(62px + env(safe-area-inset-top));
+    padding-top: env(safe-area-inset-top);
+  }
+  /* Blocks are connected on a tablet or computer. Hidden but still laid out:
+     React Flow measures the handles to draw the connections. */
+  .block-handle.react-flow__handle {
+    visibility: hidden !important;
+    pointer-events: none !important;
+  }
+  /* Bigger touch targets in block headers. */
+  .block-header .icon-btn.small {
+    width: 32px;
+    height: 32px;
+  }
+  .composer {
+    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+  }
+  .react-flow__minimap {
+    display: none;
+  }
+  .zoombar {
+    left: 8px;
+    bottom: calc(8px + env(safe-area-inset-bottom));
+  }
+}

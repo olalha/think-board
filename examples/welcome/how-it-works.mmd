@@ -1,0 +1,6 @@
+flowchart TD
+  you([You]) -->|ask in the chat| agent[The canvas's agent]
+  you -->|edit blocks| files
+  agent -->|edits| files[(Block files in a git repo)]
+  files -->|live| canvas[This canvas]
+  files -->|every change| history[History]

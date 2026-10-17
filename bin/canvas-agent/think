@@ -1,0 +1,4 @@
+#!/bin/sh
+# The `think` command as canvas agents find it on their PATH (see
+# src/server/agent/env.ts): this folder holds nothing else from bin/.
+exec "$(dirname "$(readlink -f "$0")")/../think" "$@"

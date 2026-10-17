@@ -1,0 +1,23 @@
+{
+  "//": "think configuration. Re-read on change — no restart needed. See docs/config.md.",
+  "format": 1,
+  "gridSize": 20,
+  "html": {
+    "liveZoomThreshold": 0.45
+  },
+  "validation": {
+    "maxAttempts": 2
+  },
+  "git": {
+    "defaultAutosaveSeconds": 60
+  },
+  "welcomeCanvas": true,
+  "agent": {
+    "idleShutdownSeconds": 60,
+    "defaultProvider": "claude-code"
+  },
+  "cfAccess": {
+    "teamDomain": "",
+    "audience": ""
+  }
+}

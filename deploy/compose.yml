@@ -1,0 +1,81 @@
+# think — run the published image on any machine with Docker (no checkout needed).
+# To build from source instead, use ../compose.yml.
+#
+#   1. Put this file in a folder, e.g. ~/think, with .env.example renamed .env
+#      (optional — the defaults work for most single-user machines)
+#   2. docker compose up -d        — then open http://127.0.0.1:8080 (see below)
+#
+# Everything think keeps is in one data folder (THINK_DATA, default ./think-data):
+#   data/      the canvases, one git repository each   ← back this up
+#   .agents/   each agent provider's isolated home and login
+#   guests/    requests from the `think` command
+#   .auth/     the optional app password
+#   cli/       the `think` command for agents on this machine (written by think)
+#   config/, prompts/   optional overrides of the built-in files (see docs/config.md)
+#
+# The port is bound to 127.0.0.1 only. Anyone who can open think can talk to
+# agents that run commands: reach it through an SSH tunnel, a VPN, or a reverse
+# proxy with HTTPS and authentication — see docs/install.md.
+name: think
+
+x-common: &common
+  image: ${THINK_IMAGE:-ghcr.io/olalha/think-board:latest}
+  init: true
+  restart: unless-stopped
+  security_opt: ["no-new-privileges:true"]
+  stop_grace_period: 15s
+
+services:
+  think:
+    <<: *common
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-UTC}
+      THINK_RUNNER_SOCKET: /run/think/runner.sock
+      THINK_PUBLIC_URL: ${THINK_PUBLIC_URL:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    volumes:
+      - ${THINK_DATA:-./think-data}:/projects
+      - run:/run/think
+    ports:
+      - "127.0.0.1:${THINK_PORT:-8080}:8080"
+    networks: [web]
+    depends_on:
+      agents:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/api/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  agents:
+    <<: *common
+    command: ["node", "dist/node/server/agent/runner.js"]
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-UTC}
+      THINK_RUNNER_SOCKET: /run/think/runner.sock
+    volumes:
+      - ${THINK_DATA:-./think-data}/data:/projects/data
+      - ${THINK_DATA:-./think-data}/.agents:/projects/.agents
+      - run:/run/think
+    networks: [agents]
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('net').connect('/run/think/runner.sock').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+networks:
+  web: {}
+  # The agents' network reaches the internet (the model APIs) and nothing else of this stack.
+  agents: {}
+
+volumes:
+  run: {}

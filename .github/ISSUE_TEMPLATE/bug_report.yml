@@ -1,0 +1,44 @@
+name: Bug report
+description: Something in think doesn't work as it should
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead. Screenshots help.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: think version
+      description: Settings → Server & agents shows it.
+      placeholder: 0.6.0
+    validations:
+      required: true
+  - type: dropdown
+    id: setup
+    attributes:
+      label: How you run it
+      options:
+        - Published image (deploy/compose.yml)
+        - Built from a checkout (compose.yml)
+        - From source (npm)
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: agent
+    attributes:
+      label: Agent
+      options:
+        - Claude Code
+        - Codex
+        - Not agent-related
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: "`docker compose logs think agents`, trimmed to the relevant part. Remove anything private."
+      render: text

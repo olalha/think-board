@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Weigh your options</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff;
+    --fg: #1f2328;
+    --muted: #656d76;
+    --line: #d8dee4;
+    --track: #eaeef2;
+    --accent: #6e56cf;
+    --good: #1a7f37;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161b22;
+      --fg: #e6edf3;
+      --muted: #8d96a0;
+      --line: #30363d;
+      --track: #262c36;
+      --accent: #a78bfa;
+      --good: #3fb950;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 18px 20px; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--fg); }
+  h1 { font-size: 16px; margin: 0 0 2px; }
+  .lead { margin: 0 0 14px; color: var(--muted); font-size: 12.5px; }
+  .list { display: flex; flex-direction: column; }
+  .opt { padding: 10px 0 12px; border-top: 1px solid var(--line); transition: transform .25s ease; }
+  .head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+  .rank { font-weight: 700; color: var(--muted); width: 1.2em; }
+  .name { font-weight: 600; flex: 1; }
+  .score { font-variant-numeric: tabular-nums; font-weight: 700; }
+  .opt.top .score { color: var(--good); }
+  .bar { height: 4px; border-radius: 2px; background: var(--track); margin: 0 0 8px 1.7em; overflow: hidden; }
+  .bar span { display: block; height: 100%; background: var(--accent); border-radius: 2px; transition: width .2s ease; }
+  label { display: grid; grid-template-columns: 52px 1fr 18px; align-items: center; gap: 8px; margin-left: 1.7em; font-size: 12px; color: var(--muted); }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  output { text-align: right; font-variant-numeric: tabular-nums; color: var(--fg); }
+</style>
+</head>
+<body>
+  <h1>Which idea first?</h1>
+  <p class="lead">Slide the value and the effort: the list ranks itself. An HTML block is a tiny app — ask the agent to build you one.</p>
+  <div class="list" id="list"></div>
+<script>
+  const options = [
+    { name: "Weekend workshop", value: 7, effort: 3 },
+    { name: "Monthly newsletter", value: 5, effort: 2 },
+    { name: "Mobile app", value: 9, effort: 8 },
+  ];
+  const score = (o) => Math.round(o.value * (11 - o.effort)) / 10;
+  const list = document.getElementById("list");
+
+  const rows = options.map((o) => {
+    const el = document.createElement("div");
+    el.className = "opt";
+    el.innerHTML = `
+      <div class="head"><span class="rank"></span><span class="name"></span><span class="score"></span></div>
+      <div class="bar"><span></span></div>
+      <label>Value <input type="range" min="1" max="10" data-k="value"><output></output></label>
+      <label>Effort <input type="range" min="1" max="10" data-k="effort"><output></output></label>`;
+    el.querySelector(".name").textContent = o.name;
+    for (const input of el.querySelectorAll("input")) {
+      input.value = o[input.dataset.k];
+      input.addEventListener("input", () => { o[input.dataset.k] = Number(input.value); update(); });
+    }
+    list.appendChild(el);
+    return { o, el };
+  });
+
+  function update() {
+    // Reorder with CSS `order`, so a slider keeps its focus while you drag it.
+    const ranked = [...rows].sort((a, b) => score(b.o) - score(a.o));
+    ranked.forEach(({ o, el }, i) => {
+      el.style.order = i;
+      el.classList.toggle("top", i === 0);
+      el.querySelector(".rank").textContent = i + 1;
+      el.querySelector(".score").textContent = score(o).toFixed(1);
+      el.querySelector(".bar span").style.width = `${score(o) * 10}%`;
+      el.querySelectorAll("output").forEach((out, j) => { out.textContent = j === 0 ? o.value : o.effort; });
+    });
+  }
+  update();
+</script>
+</body>
+</html>

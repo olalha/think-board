@@ -1,0 +1,32 @@
+# Block name pool — first unused name wins, in this order.
+# When all are used, names cycle with suffixes: harry-2, bob-2, …
+harry
+bob
+tom
+sally
+oscar
+nina
+felix
+greta
+hugo
+ivy
+jasper
+kira
+leo
+olga
+pablo
+quinn
+rosa
+simon
+tara
+otto
+victor
+wendy
+xena
+yuri
+zack
+bruno
+clara
+dora
+ezra
+iris

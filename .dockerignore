@@ -1,0 +1,17 @@
+# Only what the image build needs: sources, config, prompts, bin, skills, examples.
+.git
+.github
+node_modules
+dist
+docs
+e2e
+test
+test-results
+playwright-report
+*.log
+*.md
+!examples/**/*.md
+!prompts/*.md
+!skills/**/*.md
+.env
+think-data

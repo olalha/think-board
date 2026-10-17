@@ -1,0 +1,96 @@
+# think — built from this checkout. To run a published image instead, use
+# deploy/compose.yml (see docs/install.md).
+#
+#   docker compose up -d --build        then open http://localhost:8080
+#
+# Optional settings go in a .env file next to this one (see deploy/.env.example):
+# PUID/PGID (the data folder's owner, `id -u` / `id -g`), THINK_DATA, THINK_PORT,
+# THINK_PUBLIC_URL, TZ, ANTHROPIC_API_KEY / OPENAI_API_KEY.
+#
+# Two containers from one image:
+#   think   the web app and API. Reads and writes the canvases.
+#   agents  the canvas agents (and login terminals). Its network reaches the
+#           internet (the model APIs) but not the app, other containers or the
+#           host. The server starts agents there through a Unix socket on the
+#           shared `run` volume — the two containers share no network.
+#
+# The data folder (THINK_DATA, default ./think-data — git-ignored):
+#   data/      the canvases, one git repo each                   (both containers)
+#   .agents/   each provider's isolated home and login            (both)
+#   guests/    requests from the `think` command                  (think)
+#   .auth/     the optional app password and sessions             (think)
+#   config/, prompts/   optional overrides of the app's own       (think)
+# ./config and ./prompts from this checkout are mounted over the image's
+# copies, so edits apply without a rebuild (both are re-read on change).
+name: think
+
+x-common: &common
+  image: think:local
+  init: true
+  restart: unless-stopped
+  security_opt: ["no-new-privileges:true"]
+  stop_grace_period: 15s
+
+services:
+  think:
+    <<: *common
+    build:
+      context: .
+      args:
+        THINK_COMMIT: ${THINK_COMMIT:-}
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-UTC}
+      THINK_RUNNER_SOCKET: /run/think/runner.sock
+      # Optional: the address people open, for the `think` command's links.
+      THINK_PUBLIC_URL: ${THINK_PUBLIC_URL:-}
+      # Optional: API-key mode for providers configured with "auth": "api-key".
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    volumes:
+      - ${THINK_DATA:-./think-data}:/projects
+      - ./config:/opt/think/config:ro
+      - ./prompts:/opt/think/prompts:ro
+      - run:/run/think
+    # Loopback only: put a reverse proxy or tunnel in front to reach it from elsewhere.
+    ports:
+      - "127.0.0.1:${THINK_PORT:-8080}:8080"
+    networks: [web]
+    depends_on:
+      agents:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/api/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  agents:
+    <<: *common
+    command: ["node", "dist/node/server/agent/runner.js"]
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-UTC}
+      THINK_RUNNER_SOCKET: /run/think/runner.sock
+    volumes:
+      - ${THINK_DATA:-./think-data}/data:/projects/data
+      - ${THINK_DATA:-./think-data}/.agents:/projects/.agents
+      - run:/run/think
+    networks: [agents]
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('net').connect('/run/think/runner.sock').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+networks:
+  web: {}
+  # Internet only: no other service of this stack is attached to it.
+  agents: {}
+
+volumes:
+  run: {}

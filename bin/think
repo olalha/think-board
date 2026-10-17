@@ -1,0 +1,494 @@
+#!/bin/sh
+# think — the commands agents use to work on a think canvas. A canvas is a
+# folder of block files (Markdown, Mermaid, HTML, images) shown as a board:
+# agents edit those files directly, and use this command for everything else
+# about the canvas — layout, frames, links, views, comments, pointing at
+# blocks, and (for agents from outside the app) joining, the lock and their
+# tab in the canvas chat. The canvas's own agent and outside agents use the
+# same commands. `think help` lists them; `think help <command>` explains one.
+#
+# Plain POSIX sh, no dependencies. It reaches the think server through files:
+#   - the canvas's own agent (think sets THINK_CANVAS_DIR for it): request
+#     files in that canvas's .think/cli/ — its container sees only canvases;
+#   - everyone else: request files in ROOT/guests/. ROOT is found from this
+#     script's location (ROOT/app/bin/think in a checkout, ROOT/cli/bin/think
+#     when think runs from its Docker image) or THINK_ROOT.
+# See src/server/requests.ts, guests.ts and commands.ts.
+set -eu
+
+self=$(readlink -f "$0" 2>/dev/null || echo "$0")
+APP_DIR=$(cd "$(dirname "$self")/.." && pwd)
+ROOT=${THINK_ROOT:-$(dirname "$APP_DIR")}
+DATA="$ROOT/data"
+if [ -n "${THINK_CANVAS_DIR:-}" ]; then ROLE=agent; else ROLE=guest; fi
+
+die() { printf 'think: %s\n' "$*" >&2; exit 1; }
+
+# JSON string escaping (backslash, quote, tab; newlines kept as \n).
+json() {
+  printf '%s' "$1" | awk 'BEGIN { ORS = "" } {
+    gsub(/\\/, "\\\\"); gsub(/"/, "\\\""); gsub(/\t/, "\\t"); gsub(/\r/, "");
+    if (NR > 1) printf "\\n"; print
+  }'
+}
+
+json_args() {
+  out=""
+  for a in "$@"; do out="${out:+$out,}\"$(json "$a")\""; done
+  printf '[%s]' "$out"
+}
+
+is_canvas() { [ -n "${1:-}" ] && [ -d "$DATA/$1/.git" ]; }
+
+canvas_dir() {
+  [ -n "${1:-}" ] || die "which canvas? (think list)"
+  is_canvas "$1" || die "no canvas \"$1\" in $DATA (think list)"
+  printf '%s\n' "$DATA/$1"
+}
+
+# ------------------------------------------------------------------ help
+
+overview() {
+  cat <<'EOF'
+think — work on a think canvas: a folder of block files (.md, .mmd, .html,
+images) that people see as a board. Edit the block files directly, like any
+file; use these commands for everything else about the canvas. The canvas's
+AGENTS.md explains how a canvas works — read it before you change anything.
+
+The canvas
+  think read [--json]                  what is where: blocks, frames, links, views
+  think add <file> [--near B [--side right|left|below|above] | --at X,Y | --in FRAME] [--size WxH]
+                                       put a block file you wrote on the canvas
+  think move <block|frame> (--near B [--side S] | --at X,Y | --by DX,DY | --in FRAME) [--size WxH]
+  think link <from> <to> [--label "…"] [--style solid|dashed|dotted] [--arrow end|both|none]
+  think unlink <a> <b>
+  think frame "Label" <block…>         draw a frame around blocks (or grow one to hold them)
+  think unframe "Label"                remove a frame; its blocks stay
+  think rename <block> <new-name>      the file, its place, links and comments follow
+  think remove <block…>                delete blocks (History keeps them)
+  think view add "Name" <block|frame…> · think view remove "Name"
+  think comments [--open] [--json]     the user's comments
+  think comment done <id> ["note"]     mark one done · comment add <block|-> "text" (only when asked)
+  think show <block|frame…>            ring them in the user's open tabs
+  think summary "one line"             what you did: it heads the commit think makes
+EOF
+  if [ "$ROLE" = agent ]; then
+    cat <<'EOF'
+
+You are this canvas's own agent: these work during your turn, think commits
+your work when the turn ends (don't run git), and you answer in your chat.
+EOF
+  else
+    cat <<'EOF'
+
+Outside agents (add --as <your name> to every command — the name your user
+knows you by, e.g. your session's name)
+  think list                           canvases on this machine
+  think new "Name" ["what it is for"]  start a canvas; prints its folder and link
+  think join <canvas> [--about "…"] ["why"]   join: you get a tab in its chat
+  think lock ["what you are about to do"]     before changing anything
+  think unlock ["one-line summary"]    think commits your edits under your name
+  think say "message"                  post in your tab (the user replies wherever
+                                       they usually talk to you, not in think)
+  think leave ["summary"]              unlock if needed, and leave; your tab closes
+  think status [<canvas>] · url <canvas> · path <canvas> · chat [<canvas>] [-n N]
+  think skill [--install [DIR]]        the agent skill that points here (SKILL.md)
+
+After join, commands act on the canvas you joined; on several, add --canvas <canvas>.
+EOF
+  fi
+  cat <<'EOF'
+
+think help <command>, or think <command> --help, explains one command.
+EOF
+}
+
+usage() {
+  case "$1" in
+    read) cat <<'EOF'
+think read [--json]
+  The canvas at a glance: every block (name, type, x,y, width×height,
+  protected, the frames it is in), the frames and what they hold, the links,
+  the saved views and how many comments are open. --json gives the same as
+  JSON. Coordinates are pixels on the canvas grid: x grows right, y down.
+EOF
+    ;;
+    add) cat <<'EOF'
+think add <file> [--near <block> [--side right|left|below|above] | --at X,Y | --in <frame>] [--size WxH]
+  Put a block on the canvas: write the file first (at the top level of the
+  canvas folder, e.g. timeline.md), then add it.
+    --near B          next to block (or frame) B, wherever there is room
+    --near B --side S right beside B on that side (further along if taken)
+    --at X,Y          at exactly X,Y (snapped to the grid)
+    --in FRAME        inside a frame, which grows to hold it
+    --size WxH        its size, e.g. 360x260 (Markdown), 420x300 (Mermaid),
+                      480x360 (HTML)
+  Without options it stays where think put it when the file appeared: next
+  to the block worked on last. Sizes and places snap to the grid.
+EOF
+    ;;
+    move) cat <<'EOF'
+think move <block|frame> (--near B [--side right|left|below|above] | --at X,Y | --by DX,DY | --in <frame>) [--size WxH]
+  Move and/or resize a block — or a frame, which takes everything in it
+  along. --by moves by an offset (e.g. --by 0,200); --size alone resizes in
+  place. Protected blocks cannot be moved (nor frames that hold one).
+EOF
+    ;;
+    link) cat <<'EOF'
+think link <from> <to> [--label "…"] [--style solid|dashed|dotted] [--arrow end|both|none]
+  Connect two blocks (or frames) with an arrow from → to — or change the
+  link they already have. Dashed reads as "maybe" or "later", dotted as a
+  loose association. --arrow both puts heads on both ends, none on neither.
+  --label "" removes a label.
+EOF
+    ;;
+    unlink) cat <<'EOF'
+think unlink <a> <b>
+  Remove the links between two blocks (either direction).
+EOF
+    ;;
+    frame) cat <<'EOF'
+think frame "Label" <block…>
+  Frames are labelled areas that organise a canvas. With a new label, draws a
+  frame around the blocks; with an existing frame's label (or id), grows it
+  to hold them too. A block belongs to a frame when it lies entirely inside
+  it — so move blocks next to each other first (think move), then frame them.
+EOF
+    ;;
+    unframe) cat <<'EOF'
+think unframe "Label"
+  Remove a frame (by label or id). Its blocks stay where they are.
+EOF
+    ;;
+    rename) cat <<'EOF'
+think rename <block> <new-name>
+  Rename a block: the file (keeping its type), its place, its links, its
+  comments and its drawing follow. Names are lowercase letters, digits and
+  hyphens. Only rename when the user asks.
+EOF
+    ;;
+    remove) cat <<'EOF'
+think remove <block…>
+  Delete blocks: their files and links go (History keeps them). Frames are
+  removed with think unframe.
+EOF
+    ;;
+    view) cat <<'EOF'
+think view add "Name" <block|frame…>
+think view remove "Name"
+  Saved views are places on the canvas the user can jump to. add saves one
+  framing the given blocks and frames (or updates the view with that name);
+  a view of a single block or frame follows it when it moves. Keep the
+  user's views unless they ask.
+EOF
+    ;;
+    comments) cat <<'EOF'
+think comments [--open] [--json]
+  The user's comments: on blocks, frames, or the canvas as a whole — things
+  to change, questions, ideas. --open leaves out the ones marked done.
+EOF
+    ;;
+    comment) cat <<'EOF'
+think comment done <id> ["what you did"]
+  Mark a comment done once you have addressed it; the user checks and clears
+  it. The note says in one line what you did.
+think comment add <block|frame|-> "text"
+  Add a comment of your own (- is the canvas as a whole) — only when the
+  user asks you to; otherwise answer in your chat.
+EOF
+    ;;
+    show) cat <<'EOF'
+think show <block|frame…>
+  Ring blocks (or frames) for a moment in every tab that has the canvas open
+  — to point at what you are talking about. Your edits are ringed anyway.
+EOF
+    ;;
+    summary) cat <<'EOF'
+think summary "one line"
+  Say what you did, in one line: it heads the commit think makes of your
+  work (the change list follows it). Optional — without it, think writes one.
+EOF
+    ;;
+    list) echo "think list — the canvases on this machine: name and title." ;;
+    new) cat <<'EOF'
+think new "Name" ["what it is for"] --as <you>
+  Start a canvas. Prints its name, folder and a link for your user. Then join it.
+EOF
+    ;;
+    join) cat <<'EOF'
+think join <canvas> --as <you> [--about "Claude Code in a terminal"] ["why"]
+  Join a canvas as an outside agent: you get a tab in its chat (the user sees
+  your name, the --about line and your messages there) and your later
+  commands act on it without naming it. Then read AGENTS.md in the canvas
+  folder, and take the lock before changing anything. --as is the name your
+  user knows you by (your session's name, e.g. planner): lowercase letters,
+  digits and hyphens. Use the same name every time.
+EOF
+    ;;
+    lock) cat <<'EOF'
+think lock ["what you are about to do"] --as <you>
+think lock <canvas> ["…"] --as <you>        (joins it first, if you have not)
+  Take the canvas lock before changing anything: while you hold it, nobody
+  else edits (the canvas's own agent waits, the user's editing pauses) and
+  the user sees what you are doing. It lapses after 30 minutes without
+  changes; the user can take over at any time.
+EOF
+    ;;
+    unlock) cat <<'EOF'
+think unlock ["one-line summary"] --as <you>
+  Release the lock. think commits your edits under your name (your summary,
+  then the list of changes) and the canvas's own agent is told at its next
+  turn what you changed. Never run git yourself.
+EOF
+    ;;
+    say) cat <<'EOF'
+think say "message" --as <you>
+  Post in your tab of the canvas chat: what you did, what you found, a
+  question. The user can't answer there — they reply wherever they usually
+  talk to you.
+EOF
+    ;;
+    leave) cat <<'EOF'
+think leave ["summary"] --as <you>
+  Leave the canvas (unlocking first, which commits your edits); your tab
+  closes. Join again any time — the tab comes back with its history.
+EOF
+    ;;
+    status) echo "think status [<canvas>] — open in how many tabs, the agent's state, who holds the lock, which outside agents are on it." ;;
+    url) echo "think url <canvas> — the link to open the canvas in think (give it to your user)." ;;
+    path) echo "think path <canvas> — the canvas folder: edit the block files there." ;;
+    chat) echo "think chat [<canvas>] [-n N] — the last N messages (default 20) between the user and the canvas's own agent." ;;
+    skill) cat <<'EOF'
+think skill               print the agent skill (SKILL.md) that points agents here
+think skill --install     install it for Claude Code and Codex, whichever are on this machine
+think skill --install DIR install it into DIR only
+EOF
+    ;;
+    help) overview ;;
+    *) die "no command \"$1\" (think help)" ;;
+  esac
+}
+
+# ------------------------------------------------------------------ talking to the server
+
+# request JSON-FIELDS — hand a request to the server, print its answer.
+request() {
+  if [ "$ROLE" = agent ]; then
+    dir="$THINK_CANVAS_DIR/.think/cli"
+    [ -d "$dir" ] || die "think is not answering for this canvas ($dir is missing)."
+  else
+    dir="$ROOT/guests"
+    [ -d "$dir" ] || die "$dir does not exist — is think installed here and has it started once?"
+  fi
+  id="$(date +%s)-$$-$(od -An -N4 -tx4 /dev/urandom | tr -d ' \n')"
+  tmp="$dir/.req-$id.tmp"
+  printf '{%s}\n' "$1" > "$tmp"
+  mv "$tmp" "$dir/req-$id.json"
+  res="$dir/res-$id.txt"
+  i=0
+  while [ ! -f "$res" ]; do
+    i=$((i + 1))
+    if [ "$i" -gt 150 ]; then
+      rm -f "$dir/req-$id.json"
+      die "no answer from the think server after 15 s — is it running?"
+    fi
+    sleep 0.1
+  done
+  status=$(head -n 1 "$res")
+  if [ "$status" = ok ]; then
+    tail -n +2 "$res"
+    rm -f "$res"
+    return 0
+  fi
+  # A refusal (the canvas is busy, no such block…): on stderr, like any error.
+  { printf 'think: '; tail -n +2 "$res"; } >&2
+  rm -f "$res"
+  return 1
+}
+
+# send OP CANVAS [ARG…] — a request with the options given and these words.
+send() {
+  op=$1
+  cv=$2
+  shift 2
+  body="\"op\":\"$op\",\"args\":$(json_args "$@"),\"opts\":{$OPTS}"
+  [ -z "$cv" ] || body="$body,\"canvas\":\"$(json "$cv")\""
+  [ -z "$AS" ] || [ "$ROLE" = agent ] || body="$body,\"as\":\"$(json "$AS")\""
+  request "$body"
+}
+
+need_as() {
+  [ -n "$AS" ] || die "say who you are: --as <name> — the name your user knows you by (your session's name, e.g. planner)."
+}
+
+# ------------------------------------------------------------------ arguments
+
+# Options may come anywhere. What is left are the words, in order, in "$@".
+AS=${THINK_AS:-}
+CANVAS=""
+N=20
+INSTALL=""
+INSTALL_DIR=""
+HELP=""
+OPTS=""
+add_opt() { OPTS="${OPTS:+$OPTS,}\"$1\":$2"; }
+n=$#
+while [ "$n" -gt 0 ]; do
+  a=$1
+  shift
+  n=$((n - 1))
+  case "$a" in
+    --as | --canvas | -c | -n | --near | --side | --at | --by | --size | --in | --label | --style | --arrow | --about)
+      [ "$n" -gt 0 ] || die "$a needs a value (think help)"
+      v=$1
+      shift
+      n=$((n - 1))
+      case "$a" in
+        --as) AS=$v ;;
+        --canvas | -c) CANVAS=$v ;;
+        -n) N=$v ;;
+        *) add_opt "${a#--}" "\"$(json "$v")\"" ;;
+      esac
+      ;;
+    --as=*) AS=${a#--as=} ;;
+    --canvas=*) CANVAS=${a#--canvas=} ;;
+    --near=* | --side=* | --at=* | --by=* | --size=* | --in=* | --label=* | --style=* | --arrow=* | --about=*)
+      k=${a%%=*}
+      add_opt "${k#--}" "\"$(json "${a#*=}")\""
+      ;;
+    --json | --open) add_opt "${a#--}" true ;;
+    --help | -h) HELP=1 ;;
+    --install)
+      INSTALL=1
+      if [ "$n" -gt 0 ] && [ "${1#-}" = "$1" ]; then
+        INSTALL_DIR=$1
+        shift
+        n=$((n - 1))
+      fi
+      ;;
+    --) while [ "$n" -gt 0 ]; do set -- "$@" "$1"; shift; n=$((n - 1)); done ;;
+    -?*) die "unknown option $a (think help)" ;;
+    *) set -- "$@" "$a" ;;
+  esac
+done
+case "$N" in *[!0-9]* | "") die "-n needs a number" ;; esac
+cmd=${1:-help}
+[ $# -eq 0 ] || shift
+
+if [ -n "$HELP" ]; then
+  usage "$cmd"
+  exit 0
+fi
+
+# ------------------------------------------------------------------ the commands
+
+case "$cmd" in
+  help | -h)
+    if [ $# -gt 0 ]; then usage "$1"; else overview; fi
+    exit 0
+    ;;
+  read | add | move | link | unlink | frame | unframe | rename | remove | view | comments | comment | show | summary)
+    if [ "$ROLE" = guest ]; then need_as; fi
+    send "$cmd" "$CANVAS" "$@" || exit 1
+    exit 0
+    ;;
+esac
+
+if [ "$ROLE" = agent ]; then
+  case "$cmd" in
+    status) send status "" || exit 1 ;;
+    path) printf '%s\n' "$THINK_CANVAS_DIR" ;;
+    *) die "think $cmd is for agents working from outside the app. You are this canvas's own agent: you work during your turn, think commits your work when it ends, and you answer the user in your chat. (think help)" ;;
+  esac
+  exit 0
+fi
+
+case "$cmd" in
+  list | ls)
+    found=0
+    for d in "$DATA"/*/; do
+      [ -d "$d.git" ] || continue
+      slug=$(basename "$d")
+      # think.json (0.3+), or .think/project.json for a canvas not yet opened by 0.3.
+      name=$(sed -n 's/^ *"name": *"\(.*\)",\{0,1\} *$/\1/p' "${d}think.json" "$d.think/project.json" 2>/dev/null | head -n 1)
+      printf '%-28s %s\n' "$slug" "${name:-$slug}"
+      found=1
+    done
+    [ "$found" = 1 ] || echo "(no canvases in $DATA)"
+    ;;
+  new)
+    [ -n "${1:-}" ] || die "what should it be called? think new \"Name\" [\"what it is for\"]"
+    out=$(request "\"op\":\"create\",\"name\":\"$(json "$1")\",\"description\":\"$(json "${2:-}")\",\"as\":\"$(json "$AS")\"") || exit 1
+    slug=$(printf '%s\n' "$out" | sed -n 1p)
+    link=$(printf '%s\n' "$out" | sed -n 2p)
+    printf 'canvas: %s\nfolder: %s\nlink:   %s\n' "$slug" "$DATA/$slug" "${link:-(none: the app's address is not configured — THINK_PUBLIC_URL)}"
+    echo "next:   think join $slug --as ${AS:-<your name>}"
+    ;;
+  url)
+    cv=${1:-$CANVAS}
+    canvas_dir "$cv" > /dev/null
+    send url "$cv" || exit 1
+    ;;
+  path)
+    canvas_dir "${1:-$CANVAS}"
+    ;;
+  status | chat)
+    cv=${CANVAS}
+    if is_canvas "${1:-}"; then cv=$1; shift; fi
+    [ -n "$cv" ] || [ -n "$AS" ] || die "which canvas? think $cmd <canvas>"
+    body="\"op\":\"$cmd\",\"n\":$N"
+    [ -z "$cv" ] || body="$body,\"canvas\":\"$(json "$cv")\""
+    [ -z "$AS" ] || body="$body,\"as\":\"$(json "$AS")\""
+    request "$body" || exit 1
+    ;;
+  join)
+    need_as
+    cv=${1:-$CANVAS}
+    [ -z "${1:-}" ] || shift
+    canvas_dir "$cv" > /dev/null
+    send join "$cv" "$@" || exit 1
+    echo "folder: $DATA/$cv"
+    ;;
+  lock | unlock | say | leave)
+    need_as
+    cv=$CANVAS
+    # The canvas may come first, as in `think lock <canvas> "what for"`.
+    if is_canvas "${1:-}" && { [ "$cmd" != say ] || [ $# -gt 1 ]; }; then cv=$1; shift; fi
+    [ $# -le 1 ] || die "too many words — quote the text (think help $cmd)"
+    if [ "$cmd" = say ] && [ -z "${1:-}" ]; then die "say what? think say \"message\" --as $AS"; fi
+    send "$cmd" "$cv" "$@" || exit 1
+    if [ "$cmd" = lock ] && [ -n "$cv" ]; then echo "folder: $DATA/$cv"; fi
+    ;;
+  skill)
+    SKILL="$APP_DIR/skills/think-canvas/SKILL.md"
+    [ -f "$SKILL" ] || die "$SKILL is missing"
+    if [ -n "$INSTALL" ]; then
+      install_skill() { # DIR [WHO]
+        mkdir -p "$1"
+        sed "s#{{THINK}}#$self#g" "$SKILL" > "$1/SKILL.md"
+        echo "installed${2:+ for $2}: $1/SKILL.md"
+      }
+      if [ -n "$INSTALL_DIR" ]; then
+        install_skill "$INSTALL_DIR"
+      else
+        # Every agent found on this machine; Claude Code when none is.
+        codex_home=${CODEX_HOME:-$HOME/.codex}
+        found=0
+        if [ -d "$HOME/.claude" ] || command -v claude > /dev/null 2>&1; then
+          install_skill "$HOME/.claude/skills/think-canvas" "Claude Code"
+          found=1
+        fi
+        if [ -n "${CODEX_HOME:-}" ] || [ -d "$codex_home" ] || command -v codex > /dev/null 2>&1; then
+          install_skill "$codex_home/skills/think-canvas" "Codex"
+          found=1
+        fi
+        [ "$found" = 1 ] || install_skill "$HOME/.claude/skills/think-canvas" "Claude Code"
+      fi
+    else
+      sed "s#{{THINK}}#$self#g" "$SKILL"
+    fi
+    ;;
+  *)
+    die "unknown command \"$cmd\" (think help)"
+    ;;
+esac

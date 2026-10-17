@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# Log an agent provider in, into its isolated home under ROOT/.agents/.
+#
+#   bin/agent-login                 # Claude Code (default)
+#   bin/agent-login claude-code
+#   bin/agent-login codex           # Codex: ChatGPT device-code sign-in
+#
+# Runs the agent's own sign-in (Claude: `claude auth login --claudeai`; Codex:
+# `codex login --device-auth`) with HOME pointed at ROOT/.agents/<provider>/home,
+# so the credentials land there and nowhere else — the canvas agents use exactly
+# this home, and nothing of this machine's own setup is visible to them.
+#
+# The flow prints a URL: open it, approve (Claude: paste the code back here;
+# Codex: enter the code it shows on the page).
+# The same login is available in the app itself (chat panel → Log in).
+set -euo pipefail
+
+APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="${THINK_ROOT:-$(dirname "$APP_DIR")}"
+PROVIDER="${1:-claude-code}"
+
+case "$PROVIDER" in
+  claude-code) ACP="$APP_DIR/node_modules/.bin/claude-agent-acp" ;;
+  codex) ACP="$APP_DIR/node_modules/.bin/codex" ;;
+  *) echo "agent-login: unknown provider '$PROVIDER' (known: claude-code, codex)" >&2; exit 2 ;;
+esac
+
+if [[ ! -x "$ACP" ]]; then
+  echo "agent-login: $ACP not found — run 'npm ci' in $APP_DIR first" >&2
+  exit 1
+fi
+
+HOME_DIR="$ROOT/.agents/$PROVIDER/home"
+mkdir -p "$HOME_DIR"
+chmod 700 "$ROOT/.agents" "$ROOT/.agents/$PROVIDER"
+
+echo "Logging '$PROVIDER' in, into $HOME_DIR"
+echo
+
+if [[ "$PROVIDER" == codex ]]; then
+  env -i PATH="$PATH" HOME="$HOME_DIR" LANG="${LANG:-C.UTF-8}" TERM="${TERM:-xterm-256color}" "$ACP" login --device-auth
+  echo
+  if env -i PATH="$PATH" HOME="$HOME_DIR" "$ACP" login status >/dev/null 2>&1; then
+    echo "Done. The canvas agents will use this login."
+  else
+    echo "Not logged in — run this again." >&2
+    exit 1
+  fi
+  exit 0
+fi
+
+run() { env -i PATH="$PATH" HOME="$HOME_DIR" LANG="${LANG:-C.UTF-8}" TERM="${TERM:-xterm-256color}" "$ACP" --cli "$@"; }
+
+run auth login --claudeai
+echo
+# Print only non-identifying fields.
+if run auth status 2>/dev/null | node -e '
+  let s = ""; process.stdin.on("data", d => s += d).on("end", () => {
+    const j = JSON.parse(s);
+    console.log(`logged in: ${j.loggedIn}  method: ${j.authMethod}  plan: ${j.subscriptionType ?? "-"}`);
+    process.exit(j.loggedIn ? 0 : 1);
+  });'; then
+  echo "Done. The canvas agents will use this login."
+else
+  echo "Not logged in — run this again." >&2
+  exit 1
+fi

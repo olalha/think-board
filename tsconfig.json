@@ -1,0 +1,7 @@
+{
+  "files": [],
+  "references": [],
+  "include": [],
+  "compilerOptions": { "composite": false },
+  "//": "Editors: see tsconfig.server.json and tsconfig.client.json. `npm run typecheck` checks both."
+}

@@ -1,0 +1,513 @@
+/* Blocks (nodes): card, header, body per type, handles, resizer, lock state. */
+
+:root {
+  --syn-heading: #1d4ed8;
+  --syn-link: #0369a1;
+  --syn-keyword: #7c3aed;
+  --syn-tag: #b45309;
+  --syn-attr: #0f766e;
+  --syn-string: #15803d;
+  --syn-number: #c2410c;
+  --syn-comment: #8e8e87;
+  --syn-code: #be185d;
+  --syn-meta: #6b7280;
+  --syn-variable: #1d4ed8;
+  --syn-punct: #6b6b64;
+}
+:root[data-theme="dark"] {
+  --syn-heading: #93c5fd;
+  --syn-link: #7dd3fc;
+  --syn-keyword: #c4b5fd;
+  --syn-tag: #fcd34d;
+  --syn-attr: #5eead4;
+  --syn-string: #86efac;
+  --syn-number: #fdba74;
+  --syn-comment: #76766f;
+  --syn-code: #f9a8d4;
+  --syn-meta: #9ca3af;
+  --syn-variable: #93c5fd;
+  --syn-punct: #9a9a92;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --syn-heading: #93c5fd;
+    --syn-link: #7dd3fc;
+    --syn-keyword: #c4b5fd;
+    --syn-tag: #fcd34d;
+    --syn-attr: #5eead4;
+    --syn-string: #86efac;
+    --syn-number: #fdba74;
+    --syn-comment: #76766f;
+    --syn-code: #f9a8d4;
+    --syn-meta: #9ca3af;
+    --syn-variable: #93c5fd;
+    --syn-punct: #9a9a92;
+  }
+}
+
+.react-flow__node-block {
+  border-radius: 12px;
+}
+.react-flow__node-block.selectable:focus-visible {
+  outline: none;
+}
+
+.block {
+  --type: var(--type-markdown);
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  box-shadow: var(--shadow-block);
+  transition: box-shadow 0.18s, border-color 0.18s;
+  animation: block-in 0.28s var(--ease-out);
+}
+@keyframes block-in {
+  from { opacity: 0; transform: scale(0.965); }
+}
+.block.type-mermaid { --type: var(--type-mermaid); }
+.block.type-html { --type: var(--type-html); }
+.block.type-image { --type: var(--type-image); }
+.block:hover {
+  box-shadow: var(--shadow-block-hover);
+}
+.block.selected {
+  border-color: color-mix(in srgb, var(--accent) 70%, var(--border));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 70%, transparent), var(--shadow-block-hover);
+}
+
+.block-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  height: 34px;
+  padding: 0 5px 0 10px;
+  border-bottom: 1px solid var(--border);
+  border-radius: 12px 12px 0 0;
+  background: var(--panel-2);
+  cursor: grab;
+  user-select: none;
+}
+.react-flow__node.dragging .block-header {
+  cursor: grabbing;
+}
+.block-type {
+  display: inline-flex;
+  color: var(--type);
+}
+.block-name {
+  font-size: 12.5px;
+  font-weight: 650;
+  letter-spacing: -0.005em;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.block-spacer {
+  flex: 1;
+}
+.block-header .icon-btn {
+  opacity: 0.55;
+  transition: opacity 0.15s, background 0.12s;
+}
+.block:hover .block-header .icon-btn,
+.block.selected .block-header .icon-btn {
+  opacity: 1;
+}
+.save-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-3);
+  flex: none;
+}
+.save-dot.saving {
+  background: var(--accent);
+  animation: pulse 1s ease-in-out infinite;
+}
+.save-dot.error {
+  background: var(--danger);
+}
+.block-issue {
+  display: inline-flex;
+  color: var(--danger);
+  cursor: pointer;
+}
+
+.block-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 0 0 12px 12px;
+}
+.block-scroll {
+  height: 100%;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.block-missing {
+  padding: 16px;
+  color: var(--text-3);
+  font-size: 13px;
+}
+
+/* ---- raw editor ---------------------------------------------------------- */
+.block-raw {
+  position: relative;
+  height: 100%;
+}
+.code-editor {
+  height: 100%;
+  cursor: text;
+}
+.block.locked .code-editor {
+  opacity: 0.55;
+  filter: saturate(0.6);
+  transition: opacity 0.2s;
+}
+.lock-overlay {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+  color: var(--text-2);
+  font-size: 11.5px;
+  font-weight: 600;
+  pointer-events: none;
+  animation: fade-in 0.2s;
+}
+
+/* ---- markdown ------------------------------------------------------------ */
+.md,
+.chat-agent {
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.md {
+  padding: 12px 16px 16px;
+}
+.md-empty {
+  padding: 16px;
+  color: var(--text-3);
+  font-size: 13px;
+  font-style: italic;
+}
+.md > :first-child,
+.chat-agent > .md > :first-child {
+  margin-top: 0;
+}
+.md > :last-child {
+  margin-bottom: 0;
+}
+.md h1,
+.md h2,
+.md h3,
+.md h4 {
+  margin: 1.1em 0 0.45em;
+  line-height: 1.25;
+  letter-spacing: -0.015em;
+  font-weight: 680;
+}
+.md h1 { font-size: 1.55em; }
+.md h2 { font-size: 1.28em; }
+.md h3 { font-size: 1.1em; }
+.md h4 { font-size: 1em; }
+.md p,
+.md ul,
+.md ol,
+.md blockquote,
+.md pre,
+.md table {
+  margin: 0.6em 0;
+}
+.md ul,
+.md ol {
+  padding-left: 1.4em;
+}
+.md li {
+  margin: 0.2em 0;
+}
+.md li > input[type="checkbox"] {
+  margin: 0 6px 0 -1.2em;
+  vertical-align: -1px;
+}
+.md li:has(> input[type="checkbox"]) {
+  list-style: none;
+}
+.md blockquote {
+  padding: 2px 12px;
+  border-left: 3px solid var(--border-strong);
+  color: var(--text-2);
+}
+.md code {
+  font-size: 0.86em;
+}
+.md pre {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--panel-3);
+  overflow: auto;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.md pre code {
+  padding: 0;
+  background: none;
+  font-size: inherit;
+}
+.md table {
+  border-collapse: collapse;
+  font-size: 0.93em;
+  display: block;
+  overflow-x: auto;
+}
+.md th,
+.md td {
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  text-align: left;
+}
+.md th {
+  background: var(--panel-2);
+  font-weight: 650;
+}
+.md hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1.2em 0;
+}
+.md img {
+  max-width: 100%;
+  border-radius: 6px;
+}
+.md a {
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+/* ---- mermaid --------------------------------------------------------------- */
+.mermaid-view {
+  width: 100%;
+  height: 100%;
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.mermaid-view.loading {
+  color: var(--text-3);
+}
+.mermaid-view svg {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+}
+.mermaid-error {
+  height: 100%;
+  overflow: auto;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: repeating-linear-gradient(-45deg, transparent 0 10px, color-mix(in srgb, var(--danger) 3%, transparent) 10px 20px);
+}
+.mermaid-error-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--danger);
+  font-weight: 650;
+  font-size: 13px;
+}
+.mermaid-error pre {
+  margin: 0;
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--danger-soft);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  white-space: pre-wrap;
+  color: var(--text);
+}
+.mermaid-error .btn {
+  align-self: flex-start;
+}
+
+/* ---- html ---------------------------------------------------------------- */
+.html-wrap {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: #fff;
+}
+.html-frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: #fff;
+  pointer-events: none;
+}
+.html-wrap.interactive .html-frame {
+  pointer-events: auto;
+}
+.html-shield {
+  position: absolute;
+  inset: 0;
+}
+.html-placeholder {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--text-3);
+  font-size: 12.5px;
+  background:
+    radial-gradient(circle at 1px 1px, var(--border) 1px, transparent 0) 0 0 / 14px 14px,
+    var(--panel-2);
+}
+.html-placeholder svg {
+  color: var(--type-html);
+  opacity: 0.7;
+}
+
+/* ---- image --------------------------------------------------------------- */
+.image-view {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background:
+    conic-gradient(var(--panel-3) 90deg, var(--panel-2) 90deg 180deg, var(--panel-3) 180deg 270deg, var(--panel-2) 270deg) 0 0 / 16px 16px;
+}
+.image-broken {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--text-3);
+  font-size: 12.5px;
+}
+
+/* ---- connection handles --------------------------------------------------- */
+.block-handle.react-flow__handle {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 2px solid var(--panel);
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity 0.15s, transform 0.15s;
+  z-index: 3;
+}
+.block:hover .block-handle.react-flow__handle,
+.react-flow.connecting .block-handle.react-flow__handle,
+.block.selected .block-handle.react-flow__handle {
+  opacity: 0.9;
+}
+.block-handle.react-flow__handle:hover {
+  transform: scale(1.3);
+  opacity: 1;
+}
+.react-flow__handle-top.block-handle { top: -6px; }
+.react-flow__handle-bottom.block-handle { bottom: -6px; }
+.react-flow__handle-left.block-handle { left: -6px; }
+.react-flow__handle-right.block-handle { right: -6px; }
+/* Hidden but still laid out: React Flow measures handle positions when a node
+   mounts, and a block the agent creates mid-turn mounts while locked. */
+.block.locked .block-handle.react-flow__handle {
+  opacity: 0 !important;
+  pointer-events: none;
+}
+
+/* ---- resizer ---------------------------------------------------------------- */
+.react-flow__resize-control.resize-line {
+  border-color: transparent;
+}
+.react-flow__resize-control.resize-handle {
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+  border: 1.5px solid var(--accent);
+  background: var(--panel);
+}
+
+/* ---- render-only route -------------------------------------------------------- */
+.render-page {
+  position: fixed;
+  inset: 0;
+  overflow: auto;
+  background: var(--panel);
+}
+.render-page.type-mermaid .mermaid-view,
+.render-page.type-image .image-view,
+.render-page.type-html .html-frame {
+  height: 100vh;
+  pointer-events: auto;
+}
+.render-md {
+  max-width: 820px;
+  margin: 0 auto;
+  padding: 24px;
+}
+.render-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-3);
+}
+
+/* ---- an image on its way up -------------------------------------------------- */
+.upload-ghost {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border-radius: 12px;
+  border: 1.5px dashed color-mix(in srgb, var(--type-image) 60%, var(--border));
+  background: color-mix(in srgb, var(--type-image) 6%, var(--panel));
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 550;
+  pointer-events: none;
+  animation: fade-in 0.15s;
+}
+.upload-bar {
+  width: 60%;
+  height: 4px;
+  border-radius: 99px;
+  background: var(--border);
+  overflow: hidden;
+}
+.upload-bar i {
+  display: block;
+  height: 100%;
+  background: var(--type-image);
+  transition: width 0.15s;
+}

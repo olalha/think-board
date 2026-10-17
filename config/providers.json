@@ -1,0 +1,75 @@
+{
+  "//": "Agent providers. Any ACP agent can be added here. See docs/config.md.",
+  "format": 1,
+  "claude-code": {
+    "label": "Claude Code",
+    "command": "{{app_dir}}/node_modules/.bin/claude-agent-acp",
+    "args": [],
+    "env": {
+      "DISABLE_AUTOUPDATER": "1"
+    },
+    "auth": "login",
+    "apiKeyEnv": "ANTHROPIC_API_KEY",
+    "credentialsFile": ".claude/.credentials.json",
+    "usageCommand": "/usage",
+    "//commands": "Slash commands offered in the chat. Claude Code has many more, meant for software projects.",
+    "commands": [
+      "compact",
+      "context",
+      "usage",
+      "model",
+      "effort",
+      "fast",
+      "recap",
+      "dataviz"
+    ],
+    "permissionMode": "bypassPermissions",
+    "instructionsFile": "AGENTS.md",
+    "instructionsTemplate": "project-agents.md",
+    "sessionMeta": {
+      "claudeCode": {
+        "options": {
+          "settingSources": [
+            "project",
+            "local"
+          ]
+        }
+      }
+    }
+  },
+  "codex": {
+    "label": "Codex",
+    "//": "OpenAI Codex through @agentclientprotocol/codex-acp (which bundles the Codex CLI).",
+    "command": "{{app_dir}}/node_modules/.bin/codex-acp",
+    "args": [],
+    "env": {
+      "NO_BROWSER": "1",
+      "INITIAL_AGENT_MODE": "agent-full-access"
+    },
+    "auth": "login",
+    "//login": "ChatGPT sign-in needs a browser on the same machine, so it runs the Codex CLI's device-code flow in the login terminal. ChatGPT may ask you to allow device-code sign-in in its security settings first.",
+    "loginMethods": [
+      {
+        "id": "chatgpt",
+        "name": "Sign in with ChatGPT",
+        "description": "Opens the Codex sign-in: visit the link it shows and enter the code.",
+        "command": "{{app_dir}}/node_modules/.bin/codex",
+        "args": [
+          "login",
+          "--device-auth"
+        ]
+      }
+    ],
+    "apiKeyEnv": "OPENAI_API_KEY",
+    "apiKeyMethod": "api-key",
+    "credentialsFile": ".codex/auth.json",
+    "//commands": "Codex's /init would overwrite the generated AGENTS.md, and its review commands are for code.",
+    "commands": [
+      "compact",
+      "status"
+    ],
+    "permissionMode": "agent-full-access",
+    "instructionsFile": "AGENTS.md",
+    "instructionsTemplate": "project-agents.md"
+  }
+}

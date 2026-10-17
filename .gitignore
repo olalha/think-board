@@ -1,0 +1,8 @@
+node_modules/
+dist/
+test-results/
+playwright-report/
+*.log
+.env
+# The data folder of `docker compose up` from this checkout (canvases, logins).
+think-data/

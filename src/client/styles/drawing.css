@@ -1,0 +1,306 @@
+/* ---- drawing on images (and sketches) ------------------------------------------------------ */
+.block-drawing {
+  position: absolute;
+  inset: 0;
+}
+.drawing-loading,
+.drawing-fullscreen-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--text-3);
+  font-size: 13px;
+}
+.drawing-editor {
+  position: absolute;
+  inset: 0;
+  outline: none;
+}
+.drawing-stage {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background:
+    conic-gradient(var(--panel-2) 25%, var(--panel) 0 50%, var(--panel-2) 0 75%, var(--panel) 0) 0 0 / 16px 16px;
+}
+.drawing-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.drawing-layer svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.drawing-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  cursor: crosshair;
+}
+.tool-select .drawing-overlay {
+  cursor: default;
+}
+.tool-text .drawing-overlay {
+  cursor: text;
+}
+.tool-eraser .drawing-overlay {
+  cursor: cell;
+}
+.drawing-overlay .handle.h-nw,
+.drawing-overlay .handle.h-se {
+  cursor: nwse-resize;
+}
+.drawing-overlay .handle.h-ne,
+.drawing-overlay .handle.h-sw {
+  cursor: nesw-resize;
+}
+.drawing-overlay .handle.h-n,
+.drawing-overlay .handle.h-s {
+  cursor: ns-resize;
+}
+.drawing-overlay .handle.h-e,
+.drawing-overlay .handle.h-w {
+  cursor: ew-resize;
+}
+.drawing-crop [data-handle="move"] {
+  cursor: move;
+}
+.drawing-text-input {
+  position: absolute;
+  z-index: 2;
+  min-width: 2ch;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 2px;
+  outline: 1.5px dashed color-mix(in srgb, var(--accent) 70%, transparent);
+  outline-offset: 4px;
+  background: transparent;
+  font-family: Inter, "Inter Variable", -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-weight: 600;
+  white-space: pre;
+  resize: none;
+  overflow: hidden;
+  field-sizing: content;
+}
+.drawing-locked {
+  position: absolute;
+  inset: auto 12px 12px 12px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  font-size: 12.5px;
+  text-align: center;
+}
+.drawing-editor.is-locked .drawing-overlay {
+  pointer-events: none;
+}
+
+/* Full screen: the same editor over everything. */
+.drawing-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 880;
+  padding: 16px 16px 84px;
+  background: var(--bg);
+  animation: fade-in 0.15s;
+}
+.drawing-fullscreen .drawing-editor {
+  inset: 16px 16px 84px;
+}
+
+/* The tools float at the bottom of the screen. */
+.drawing-toolbar {
+  position: fixed;
+  /* Centred on the canvas, between the side panel and the chat. */
+  left: calc(var(--side-eff, 0px) + (100vw - var(--side-eff, 0px) - var(--chat-eff, 0px)) / 2);
+  bottom: 18px;
+  z-index: 950;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: calc(100vw - var(--side-eff, 0px) - var(--chat-eff, 0px) - 24px);
+  padding: 6px 8px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  box-shadow: var(--shadow-lg);
+  transform: translateX(-50%);
+  flex-wrap: wrap;
+  justify-content: center;
+  animation: palette-in 0.16s var(--ease-out);
+}
+.drawing-tools,
+.drawing-colors {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.drawing-tools .icon-btn {
+  position: relative;
+}
+.drawing-tools .icon-btn.active {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+.eraser-mode {
+  position: absolute;
+  right: 3px;
+  bottom: 1px;
+  font-size: 12px;
+  line-height: 1;
+}
+.drawing-sep {
+  flex: none;
+  width: 1px;
+  height: 22px;
+  margin: 0 2px;
+  background: var(--border);
+}
+.drawing-hint {
+  padding: 0 6px;
+  color: var(--text-2);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+.swatch {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 0 1px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--text) 18%, transparent);
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+.swatch:hover {
+  transform: scale(1.12);
+}
+.swatch.on {
+  box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--accent);
+}
+.swatch.page {
+  border-radius: 6px;
+}
+.drawing-colors.bg {
+  padding-left: 4px;
+  border-left: 1px solid var(--border);
+}
+.drawing-sizes button {
+  width: 30px;
+}
+.size-dot {
+  display: inline-block;
+  border-radius: 50%;
+  background: currentColor;
+  vertical-align: middle;
+}
+.size-dot.size-S {
+  width: 4px;
+  height: 4px;
+}
+.size-dot.size-M {
+  width: 7px;
+  height: 7px;
+}
+.size-dot.size-L {
+  width: 11px;
+  height: 11px;
+}
+
+.drawing-toolbar.over-all {
+  left: 50%;
+  max-width: calc(100vw - 24px);
+}
+.drawing-pop-anchor {
+  position: relative;
+  display: flex;
+}
+.color-btn .swatch.current {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  pointer-events: none;
+}
+.drawing-pop {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 12px);
+  z-index: 960;
+  display: flex;
+  gap: 4px;
+  padding: 7px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  box-shadow: var(--shadow-lg);
+  transform: translateX(-50%);
+  animation: palette-in 0.12s var(--ease-out);
+}
+
+/* The page picker: the colours, then a photo. */
+.drawing-pop-sep {
+  width: 1px;
+  margin: 0 3px;
+  align-self: stretch;
+  background: var(--border);
+}
+.page-photo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 20px;
+  padding: 0;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--text) 18%, transparent);
+  background: var(--panel-2);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+.page-photo:hover {
+  transform: scale(1.08);
+  color: var(--text);
+}
+.page-photo.on {
+  box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--accent);
+}
+
+/* A photo on its way to becoming the page. */
+.drawing-busy {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: color-mix(in srgb, var(--panel) 72%, transparent);
+  backdrop-filter: blur(2px);
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 550;
+  animation: fade-in 0.15s;
+}
+.drawing-busy .upload-bar {
+  width: min(60%, 260px);
+}
+
+/* Select by dragging a box. */
+.drawing-box {
+  fill: color-mix(in srgb, var(--accent) 8%, transparent);
+  stroke: var(--accent);
+  stroke-dasharray: none;
+}

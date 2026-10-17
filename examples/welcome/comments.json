@@ -1,0 +1,12 @@
+{
+  "format": 1,
+  "comments": [
+    {
+      "id": "c-welcome-1",
+      "on": "weigh-your-options",
+      "by": "think",
+      "text": "Comments are notes for the agent. Ask it to “address the comments” and it does them, then ticks them off — try it: add a fourth option here, for a podcast.",
+      "at": "2026-10-17T00:00:00.000Z"
+    }
+  ]
+}
