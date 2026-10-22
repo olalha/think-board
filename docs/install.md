@@ -121,22 +121,37 @@ browser.
 ## Let agents on this machine use it (optional)
 
 Agents on the same machine (Claude Code or Codex in a terminal) can work on
-canvases with the `think` command, which think copies into the data folder:
+canvases with the `think` command. Install it from the image or from your
+checkout, never from the data folder: think's container can write there, and
+your agents would run whatever it wrote. Next to your compose file:
 
 ```bash
-ln -s "$PWD/think-data/cli/bin/think" ~/.local/bin/think   # anywhere on PATH
+# The published image (deploy/compose.yml): copy the command out of the image.
+mkdir -p think-cli
+docker compose run --rm --no-deps -T --entrypoint tar think -C /opt/think -cf - bin/think skills/think-canvas | tar -xf - -C think-cli
+ln -s "$PWD/think-cli/bin/think" ~/.local/bin/think   # anywhere on PATH
+
+# A checkout: it is already there.
+ln -s "$PWD/bin/think" ~/.local/bin/think
+
 think list
 think skill --install     # the agent guide, for Claude Code and/or Codex (whichever are here)
 ```
 
-It needs only `sh`, and must run as the data folder's owner (the same user as
-`PUID`). See `docs/outside-agents.md`.
+It finds the data folder itself when that is `./think-data` (the default). For
+another `THINK_DATA`, set `THINK_ROOT` to that folder wherever agents run
+`think`. It needs only `sh`, and must run as the data folder's owner (the same
+user as `PUID`). See `docs/outside-agents.md`.
 
 ## Updating
 
 ```bash
 docker compose pull && docker compose up -d
 ```
+
+If you copied the `think` command out of the image, run that `docker compose
+run … tar` line again too. Up to 0.6, think put the command in the data folder
+(`think-data/cli`); it now removes that copy at start, so install it as above.
 
 With a pinned `THINK_IMAGE`, change the version in `.env` first. Canvases are
 upgraded when they are next opened; the upgrade shows in their History. A

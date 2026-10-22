@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 import { buildApp } from "./app.js";
 import { LoginManager } from "./agent/login.js";
 import { ConfigStore, resolvePaths } from "./config.js";
-import { GuestBridge, publishCli } from "./guests.js";
+import { GuestBridge, retireCli } from "./guests.js";
 import { ProjectManager } from "./manager.js";
 import { MermaidValidator } from "./mermaid.js";
 import { ProjectStore } from "./projects.js";
@@ -78,8 +78,10 @@ const app = await buildApp({
 });
 
 // Outside agents (the `think` command) reach the server through ROOT/guests/.
-// Run from the image, the command itself is published into ROOT/cli for the host.
-await publishCli(paths).catch((err) => log.warn("could not publish the think command", { error: String(err) }));
+// The host's `think` command must not live in the data folder (see retireCli).
+if (await retireCli(paths).catch(() => false)) {
+  log.warn("removed the think command from the data folder (ROOT/cli): install it again as docs/install.md describes");
+}
 const guests = new GuestBridge(paths, store, manager, config, consoleLogger("guests"), process.env.THINK_PUBLIC_URL?.trim() ?? "");
 await guests.start().catch((err) => log.warn("guest requests disabled", { error: String(err) }));
 

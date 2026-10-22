@@ -18,6 +18,10 @@ reply as soon as I can and keep you posted until it is fixed.
 - Agents run in their own container, whose network reaches the internet but not
   the app or other containers. Inside it they have full permissions and can read
   every canvas and the stored sign-ins: treat one install as one trust domain.
+- The app's container can write the data folder, so never let the host run
+  anything from it — install the `think` command from the image or a checkout
+  ([docs/install.md](docs/install.md)), and keep the data folder separate from
+  any code the host runs.
 - HTML blocks run in sandboxed iframes without same-origin access.
 - Sign-ins and API keys stay on the server, in the data folder (`.agents/`) or
   the environment; they never reach the browser.

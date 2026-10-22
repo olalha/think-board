@@ -173,25 +173,22 @@ export class GuestBridge {
 }
 
 /**
- * Run from the Docker image, the app is not in the data folder — so the
- * `think` command (and its agent guide) is copied into ROOT/cli, laid out
- * like the app (cli/bin/think, cli/skills/…), where the host can run it:
- *   ln -s ~/think/cli/bin/think ~/.local/bin/think
- * A source checkout at ROOT/app already has it; then nothing is copied.
+ * Versions up to 0.6 copied the `think` command into ROOT/cli for the host to
+ * run. The app's container can write the data folder, so a host running a
+ * script from it runs whatever the container put there: remove that copy (only
+ * the files think wrote) and say how to install the command instead.
+ * Returns true when there was one.
  */
-export async function publishCli(paths: Paths): Promise<void> {
-  const inData = path.join(paths.root, "app", "bin", "think");
-  if (await fs.stat(inData).then(() => true, () => false)) return;
-  const files: [string, string, number][] = [
-    [path.join(paths.appDir, "bin", "think"), path.join(paths.root, "cli", "bin", "think"), 0o755],
-    [path.join(paths.appDir, "skills", "think-canvas", "SKILL.md"), path.join(paths.root, "cli", "skills", "think-canvas", "SKILL.md"), 0o644],
-  ];
-  for (const [from, to, mode] of files) {
-    const data = await fs.readFile(from);
-    const current = await fs.readFile(to).catch(() => null);
-    if (current?.equals(data)) continue;
-    await fs.mkdir(path.dirname(to), { recursive: true });
-    await fs.writeFile(to, data, { mode });
-    await fs.chmod(to, mode);
+export async function retireCli(paths: Paths): Promise<boolean> {
+  const cli = path.join(paths.root, "cli");
+  const files = [path.join(cli, "bin", "think"), path.join(cli, "skills", "think-canvas", "SKILL.md")];
+  let found = false;
+  for (const file of files) {
+    if (await fs.rm(file).then(() => true, () => false)) found = true;
   }
+  // Then the folders, innermost first, if nothing else is in them.
+  for (const dir of [path.join(cli, "bin"), path.join(cli, "skills", "think-canvas"), path.join(cli, "skills"), cli]) {
+    await fs.rmdir(dir).catch(() => {});
+  }
+  return found;
 }
