@@ -10,15 +10,20 @@
 # Plain POSIX sh, no dependencies. It reaches the think server through files:
 #   - the canvas's own agent (think sets THINK_CANVAS_DIR for it): request
 #     files in that canvas's .think/cli/ — its container sees only canvases;
-#   - everyone else: request files in ROOT/guests/. ROOT is found from this
-#     script's location (ROOT/app/bin/think in a checkout, ROOT/cli/bin/think
-#     when think runs from its Docker image) or THINK_ROOT.
+#   - everyone else: request files in ROOT/guests/. ROOT is THINK_ROOT, else
+#     the default data folder `think-data` in or beside this command's folder
+#     (a checkout, or a copy taken from the image), else that folder's parent.
+#     The command never runs from inside the data folder: the app's container
+#     can write there, and the host would run what it wrote.
 # See src/server/requests.ts, guests.ts and commands.ts.
 set -eu
 
 self=$(readlink -f "$0" 2>/dev/null || echo "$0")
 APP_DIR=$(cd "$(dirname "$self")/.." && pwd)
-ROOT=${THINK_ROOT:-$(dirname "$APP_DIR")}
+if [ -n "${THINK_ROOT:-}" ]; then ROOT=$THINK_ROOT
+elif [ -d "$APP_DIR/think-data" ]; then ROOT="$APP_DIR/think-data"
+elif [ -d "$(dirname "$APP_DIR")/think-data" ]; then ROOT="$(dirname "$APP_DIR")/think-data"
+else ROOT=$(dirname "$APP_DIR"); fi
 DATA="$ROOT/data"
 if [ -n "${THINK_CANVAS_DIR:-}" ]; then ROLE=agent; else ROLE=guest; fi
 
@@ -483,6 +488,10 @@ case "$cmd" in
           found=1
         fi
         [ "$found" = 1 ] || install_skill "$HOME/.claude/skills/think-canvas" "Claude Code"
+      fi
+      if [ -n "${THINK_ROOT:-}" ]; then
+        echo "note: THINK_ROOT is set here, but agents using the skill run $self without it." >&2
+        echo "      Set THINK_ROOT for them too, or keep the data folder as think-data beside the command's folder." >&2
       fi
     else
       sed "s#{{THINK}}#$self#g" "$SKILL"

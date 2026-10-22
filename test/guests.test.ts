@@ -7,7 +7,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import { ConfigStore, resolvePaths } from "../src/server/config.js";
-import { GuestBridge } from "../src/server/guests.js";
+import { GuestBridge, retireCli } from "../src/server/guests.js";
 import type { ProjectManager } from "../src/server/manager.js";
 import { ProjectStore } from "../src/server/projects.js";
 import { silentLogger } from "../src/server/util.js";
@@ -56,6 +56,56 @@ describe("the think command", () => {
     const { think } = await start("");
     expect((await think("new", "Notes")).stdout).toContain("link:   (none: the app's address is not configured");
     await expect(think("url", "notes")).rejects.toMatchObject({ stderr: expect.stringContaining("THINK_PUBLIC_URL") });
+  });
+});
+
+describe("where the think command finds the data folder", () => {
+  // A copy of the command at `cmd` (relative to a scratch dir) and one canvas in `data`.
+  async function layout(cmd: string, data: string) {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "think-root-"));
+    cleanup = () => fs.rm(dir, { recursive: true, force: true });
+    await fs.mkdir(path.join(dir, cmd, "bin"), { recursive: true });
+    await fs.copyFile(path.join(APP_DIR, "bin", "think"), path.join(dir, cmd, "bin", "think"));
+    await fs.mkdir(path.join(dir, data, "data", "ideas", ".git"), { recursive: true });
+    const list = (env: Record<string, string> = {}) =>
+      run("sh", [path.join(dir, cmd, "bin", "think"), "list"], { env: { PATH: "/usr/bin:/bin", ...env } }).then((r) => r.stdout);
+    return { dir, list };
+  }
+
+  it("uses think-data inside a checkout", async () => {
+    expect(await (await layout("checkout", "checkout/think-data")).list()).toMatch(/^ideas /m);
+  });
+
+  it("uses think-data beside a copy taken from the image", async () => {
+    expect(await (await layout("think-cli", "think-data")).list()).toMatch(/^ideas /m);
+  });
+
+  it("falls back to the folder above the command's, and THINK_ROOT wins over both", async () => {
+    const l = await layout("app", ".");
+    expect(await l.list()).toMatch(/^ideas /m);
+    await fs.mkdir(path.join(l.dir, "elsewhere", "data", "plans", ".git"), { recursive: true });
+    expect(await l.list({ THINK_ROOT: path.join(l.dir, "elsewhere") })).toMatch(/^plans /m);
+  });
+});
+
+describe("retireCli", () => {
+  it("removes the copy of the command that older versions put in the data folder, and nothing else", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "think-cli-"));
+    cleanup = () => fs.rm(root, { recursive: true, force: true });
+    const paths = resolvePaths({ THINK_ROOT: root, THINK_APP_DIR: APP_DIR });
+    expect(await retireCli(paths)).toBe(false);
+    await fs.mkdir(path.join(root, "cli", "bin"), { recursive: true });
+    await fs.mkdir(path.join(root, "cli", "skills", "think-canvas"), { recursive: true });
+    await fs.writeFile(path.join(root, "cli", "bin", "think"), "#!/bin/sh\n");
+    await fs.writeFile(path.join(root, "cli", "skills", "think-canvas", "SKILL.md"), "guide\n");
+    await fs.writeFile(path.join(root, "cli", "notes.txt"), "mine\n");
+    expect(await retireCli(paths)).toBe(true);
+    expect(await fs.readdir(path.join(root, "cli"))).toEqual(["notes.txt"]);
+    await fs.rm(path.join(root, "cli", "notes.txt"));
+    await fs.mkdir(path.join(root, "cli", "bin"));
+    await fs.writeFile(path.join(root, "cli", "bin", "think"), "#!/bin/sh\n");
+    expect(await retireCli(paths)).toBe(true);
+    expect(await fs.stat(path.join(root, "cli")).then(() => true, () => false)).toBe(false);
   });
 });
 

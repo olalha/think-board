@@ -109,6 +109,7 @@ for skills: Claude Code's `~/.claude/skills/` and Codex's
 Code's when neither is; `--install DIR` puts it into DIR instead. For any
 other agent, `think skill` prints it (paste it into that agent's instructions).
 
-When think runs from its Docker image, the command lives in the data folder
-(`ROOT/cli/bin/think`, written by the server at start); link it onto your
-PATH — see `docs/install.md`.
+Agents run the command from the image or a checkout, never from the data
+folder, which think's container can write: see "Let agents on this machine use
+it" in `docs/install.md`. It finds the data folder from `THINK_ROOT`, else as
+`think-data` in or beside its own folder.
