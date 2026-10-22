@@ -1,6 +1,6 @@
 {
   "name": "think-board",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "private": true,
   "description": "A self-hosted canvas for thinking with an AI agent: blocks are files, each canvas has its own agent.",
   "license": "MIT",
