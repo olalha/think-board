@@ -18,18 +18,21 @@ fs.cpSync(path.join(app, "prompts"), path.join(appDir, "prompts"), { recursive: 
 fs.cpSync(path.join(app, "bin"), path.join(appDir, "bin"), { recursive: true }); // the `think` command, as in a checkout
 fs.copyFileSync(path.join(app, "config", "names.txt"), path.join(appDir, "config", "names.txt"));
 fs.writeFileSync(path.join(appDir, "config", "think.json"), JSON.stringify({ git: { defaultAutosaveSeconds: 0 }, agent: { defaultProvider: "fake", idleShutdownSeconds: 5 } }));
+const fake = {
+  label: "Fake agent",
+  command: process.execPath,
+  args: [path.join(app, "test", "fixtures", "fake-agent.mjs")],
+  env: { FAKE_AGENT_LOG: path.join(root, "prompts.jsonl") },
+  auth: "login",
+  instructionsFile: "AGENTS.md",
+  instructionsTemplate: "project-agents.md",
+};
 fs.writeFileSync(
   path.join(appDir, "config", "providers.json"),
   JSON.stringify({
-    fake: {
-      label: "Fake agent",
-      command: process.execPath,
-      args: [path.join(app, "test", "fixtures", "fake-agent.mjs")],
-      env: { FAKE_AGENT_LOG: path.join(root, "prompts.jsonl") },
-      auth: "login",
-      instructionsFile: "AGENTS.md",
-      instructionsTemplate: "project-agents.md",
-    },
+    fake,
+    // Never signed in: its canvases show the login card (switching agents).
+    locked: { ...fake, label: "Locked agent", env: { ...fake.env, FAKE_NEEDS_LOGIN: "1" } },
   }),
 );
 const child = spawn(process.execPath, ["--import", "tsx", path.join(app, "src", "server", "index.ts")], {

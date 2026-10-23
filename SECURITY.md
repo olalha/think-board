@@ -18,6 +18,8 @@ reply as soon as I can and keep you posted until it is fixed.
 - Agents run in their own container, whose network reaches the internet but not
   the app or other containers. Inside it they have full permissions and can read
   every canvas and the stored sign-ins: treat one install as one trust domain.
+- There are no user accounts: everyone who gets past the authentication in front
+  sees and edits every canvas and uses the same agent sign-ins.
 - The app's container can write the data folder, so never let the host run
   anything from it — install the `think` command from the image or a checkout
   ([docs/install.md](docs/install.md)), and keep the data folder separate from

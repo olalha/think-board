@@ -10,6 +10,8 @@
 //                      `think` command; its output is logged
 //   slow               take ~1.5s before finishing (cancellable)
 //
+// $FAKE_NEEDS_LOGIN=1 makes every new session fail with "auth required", so the
+// chat shows its login card.
 // $FAKE_SCENE names a JSON file of scripted turns, for demos and screenshots:
 //   [{ "match": "text in the prompt", "files": { "name.md": "content" },
 //      "run": ["think add name.md --near welcome"], "reply": "Markdown" }]
@@ -81,6 +83,7 @@ acp
     authMethods: [],
   }))
   .onRequest("session/new", (ctx) => {
+    if (process.env.FAKE_NEEDS_LOGIN === "1") throw acp.RequestError.authRequired(undefined, "Not logged in");
     const id = `fake-${Math.random().toString(36).slice(2, 10)}`;
     cwdOf.set(id, ctx.params.cwd);
     // Like claude-agent-acp: advertise slash commands shortly after the session starts.

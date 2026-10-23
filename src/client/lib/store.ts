@@ -16,6 +16,7 @@ import type {
   GuestEntry,
   GuestInfo,
   LockState,
+  ProviderInfo,
   ServerMessage,
   ValidationReport,
 } from "../../shared/protocol";
@@ -30,7 +31,7 @@ export interface BoardState {
   conn: ConnState;
   connDetail?: string;
   loaded: boolean;
-  project: { slug: string; name: string; provider: { id: string; label: string }; settings: CanvasSettings } | null;
+  project: { slug: string; name: string; provider: ProviderInfo; providers: ProviderInfo[]; settings: CanvasSettings } | null;
   gridSize: number;
   htmlLiveZoom: number;
   blocks: Record<string, BlockInfo>;
@@ -303,7 +304,7 @@ export function applyServerMessage(msg: ServerMessage, onExternalChange?: (block
       useBoard.setState({ historyVersion: s.historyVersion + 1 });
       break;
     case "project.meta":
-      if (s.project) useBoard.setState({ project: { ...s.project, name: msg.name, settings: msg.settings } });
+      if (s.project) useBoard.setState({ project: { ...s.project, name: msg.name, provider: msg.provider, settings: msg.settings } });
       break;
     case "file.changed":
       // A block the agent (or anyone outside this tab) just created opens

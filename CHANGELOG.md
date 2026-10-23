@@ -5,6 +5,16 @@ before 1.0, a minor version may change things that are not backwards compatible.
 How versions and releases work: "Versioning and releases" in
 [docs/development.md](docs/development.md).
 
+## 0.6.2
+
+- **Switch a canvas's agent:** the chat's ⋯ menu (*Switch to …*) and the login
+  card (*Or use another agent*) hand a canvas to another provider, such as Codex
+  instead of Claude Code. The switch starts a new conversation; nothing of the
+  old one is passed on. So a Codex user can use the welcome canvas without a
+  Claude login.
+- **Docs:** think has no user accounts, which the install guide, README and
+  SECURITY.md now say next to the advice to put authentication in front.
+
 ## 0.6.1
 
 - **Security:** the `think` command for agents on the host is no longer copied

@@ -36,6 +36,8 @@ on your laptop or a server.
   in your editor, or ask an agent — the canvas follows the folder live.
 - **An agent per canvas.** Ask in the chat: it edits the files directly and the
   canvas updates live. Leave comments on blocks and it works through them.
+  Switch a canvas between Claude Code and Codex at any time, in a new
+  conversation.
 - **Any agent can join.** An agent that can edit files and run a command —
   Claude Code, Codex or another — works on a canvas with the `think` command,
   in a tab of its own in the chat.
@@ -80,6 +82,8 @@ docker compose up -d --build
 
 **On a server**, put authentication in front: think has an optional built-in
 password, and anyone who can open it can talk to agents that run commands.
+think has no user accounts: everyone who gets in sees every canvas and uses the
+same agent sign-ins.
 [docs/install.md](docs/install.md) covers reverse proxies, Dokploy and
 Coolify, the password, API keys and updates.
 

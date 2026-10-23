@@ -18,6 +18,10 @@ published image you need nothing from this repository but `deploy/compose.yml`
   The compose files bind the port to `127.0.0.1` only. Never publish it to the
   internet without one of these in front.
 
+  think has **no user accounts**. It is one shared workspace: everyone who gets
+  past that authentication sees and edits every canvas, and uses the same agent
+  sign-ins (your Claude or ChatGPT plan, or your API keys).
+
 ## Run it
 
 ```bash
@@ -106,6 +110,12 @@ address.
 Open a canvas: the chat shows **Log in to …** for its agent. A terminal in the
 page runs the agent's own sign-in inside its isolated home, and the credentials
 stay there. One login serves every canvas using that agent.
+
+New canvases (and the welcome canvas) use the default agent, `defaultProvider`
+in `config/think.json`. To use another one on a canvas, pick it on the login
+card (**Or use another agent**) or in the chat's **⋯** menu (**Switch to …**).
+The canvas then starts a new conversation with that agent; nothing of the old
+conversation is passed on, and the old chat stays readable above a divider.
 
 - **Claude Code:** open the link, approve, paste the code back.
 - **Codex:** *Sign in with ChatGPT* runs the Codex CLI's device-code sign-in:
