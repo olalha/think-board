@@ -41,6 +41,7 @@ import type {
   LayoutOp,
   LockState,
   PasteBlock,
+  ProviderInfo,
   ServerMessage,
   ValidationIssue,
   ValidationReport,
@@ -358,7 +359,7 @@ export class ProjectRuntime {
   }
 
   private broadcastMeta(): void {
-    this.broadcast({ type: "project.meta", name: this.meta.name, settings: this.meta.settings });
+    this.broadcast({ type: "project.meta", name: this.meta.name, provider: this.providerInfo(), settings: this.meta.settings });
   }
 
   /**
@@ -450,6 +451,10 @@ export class ProjectRuntime {
 
   // ================================================================== snapshot / broadcast
 
+  private providerInfo(): ProviderInfo {
+    return { id: this.meta.provider, label: this.provider?.label ?? this.meta.provider };
+  }
+
   private snapshot(): ServerMessage {
     const cfg = this.deps.config.get();
     return {
@@ -457,7 +462,8 @@ export class ProjectRuntime {
       project: {
         slug: this.slug,
         name: this.meta.name,
-        provider: { id: this.meta.provider, label: this.provider?.label ?? this.meta.provider },
+        provider: this.providerInfo(),
+        providers: Object.values(this.deps.config.providers()).map((p) => ({ id: p.id, label: p.label })),
         settings: this.meta.settings,
       },
       gridSize: cfg.gridSize,
@@ -1197,6 +1203,8 @@ export class ProjectRuntime {
         return this.restartAgent();
       case "agent.newSession":
         return this.newSession();
+      case "agent.switch":
+        return this.switchProvider(msg.provider);
       case "login.start":
         return this.startLogin(client, msg.methodId, { cols: msg.cols, rows: msg.rows });
       case "login.input":
@@ -1924,6 +1932,42 @@ export class ProjectRuntime {
       if (hadHistory && !this.suppressNextDivider) void this.addEntry({ kind: "divider", id: newId("d-"), ts: Date.now(), text: "New agent session" });
       this.suppressNextDivider = false;
     }
+  }
+
+  /**
+   * Hand the canvas to another provider's agent. It starts a new conversation:
+   * nothing of the old one is passed on, and the chat gets a divider. Logging in
+   * (if the new provider needs it) then happens in the chat as usual.
+   */
+  private switchProvider(id: string): Promise<void> {
+    return this.queue.run(async () => {
+      if (this.turnRunning) throw new UserError("Wait for the current turn to finish (or stop it) before switching the agent.");
+      this.assertUnlocked();
+      if (id === this.meta.provider) return;
+      const next = this.deps.config.provider(id);
+      if (!next) throw new UserError(`There is no agent provider "${id}".`);
+      const old = this.provider;
+      const agent = this.agent;
+      this.agent = null;
+      await agent?.stop();
+      // This canvas stops watching the old provider's login terminal; the login
+      // itself goes on (another canvas may be waiting for it).
+      if (old) for (const [clientId, sink] of this.loginSinks) {
+        this.deps.logins.get(old.id)?.detach(sink);
+        this.loginSinks.delete(clientId);
+      }
+      if (old && old.instructionsFile !== next.instructionsFile) {
+        await fs.rm(path.join(this.dir, old.instructionsFile), { force: true });
+      }
+      this.provider = next;
+      await this.writeMeta({ ...this.meta, provider: next.id }, `think: switched the agent to ${next.label}`);
+      this.state.sessionId = null;
+      await this.saveState();
+      this.commands = [];
+      this.broadcast({ type: "agent.commands", commands: this.commands });
+      await this.addEntry({ kind: "divider", id: newId("d-"), ts: Date.now(), text: `Switched to ${next.label} · new conversation` });
+      this.suppressNextDivider = true;
+    }).then(() => this.ensureAgent());
   }
 
   private async restartAgent(): Promise<void> {

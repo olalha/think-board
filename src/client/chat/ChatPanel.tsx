@@ -1,6 +1,6 @@
 // The agent chat panel: slides in from the right, one per project.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, ChevronUp, KeyRound, LocateFixed, MessageSquarePlus, MoreHorizontal, RotateCcw, Square, TriangleAlert, X } from "lucide-react";
+import { ArrowDown, ArrowLeftRight, ArrowUp, ChevronUp, KeyRound, LocateFixed, MessageSquarePlus, MoreHorizontal, RotateCcw, Square, TriangleAlert, X } from "lucide-react";
 import type { AgentCommand, AgentStatus, ChatEntry } from "../../shared/protocol";
 import { act, sendPrompt } from "../lib/project";
 import { panelMax, setChatOpen, setChatTab, useBoard } from "../lib/store";
@@ -95,6 +95,7 @@ function ChatHeader() {
   const running = useBoard((s) => s.turnRunning);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const account = agent.state === "ready" ? agent.account : undefined;
+  const others = (project?.providers ?? []).filter((p) => p.id !== project?.provider.id);
   return (
     <header className="chat-head">
       <div className="chat-head-title">
@@ -135,6 +136,17 @@ function ChatHeader() {
               disabled: running,
               onSelect: () => void act({ type: "agent.restart" }),
             },
+            ...(others.length > 0
+              ? [
+                  { kind: "sep" as const },
+                  ...others.map((p) => ({
+                    label: `Switch to ${p.label}`,
+                    icon: <ArrowLeftRight size={15} />,
+                    disabled: running,
+                    onSelect: () => switchAgent(p.id),
+                  })),
+                ]
+              : []),
           ]}
         />
       )}
@@ -286,10 +298,18 @@ function WorkingRow() {
   );
 }
 
+/** Hand the canvas to another agent: a new conversation, nothing carried over. */
+function switchAgent(id: string) {
+  useBoard.setState({ loginOpen: false });
+  void act({ type: "agent.switch", provider: id });
+}
+
 function AgentStateCard() {
   const agent = useBoard((s) => s.agent);
   const provider = useBoard((s) => s.project?.provider.label ?? "the agent");
   const providerId = useBoard((s) => s.project?.provider.id);
+  const providers = useBoard((s) => s.project?.providers);
+  const others = (providers ?? []).filter((p) => p.id !== providerId);
   const [switching, setSwitching] = useState(false);
   if (agent.state === "starting") {
     return (
@@ -355,6 +375,16 @@ function AgentStateCard() {
             ))}{" "}
             for think (see the install guide).
           </p>
+        )}
+        {others.length > 0 && (
+          <div className="agent-card-switch">
+            <span className="muted small">Or use another agent on this canvas:</span>
+            {others.map((p) => (
+              <button key={p.id} className="btn small" onClick={() => switchAgent(p.id)}>
+                <ArrowLeftRight size={13} /> {p.label}
+              </button>
+            ))}
+          </div>
         )}
       </div>
     );

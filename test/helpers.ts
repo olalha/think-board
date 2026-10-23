@@ -41,7 +41,7 @@ export async function waitFor(check: () => boolean | Promise<boolean>, what: str
   throw new Error(`timed out waiting for ${what}`);
 }
 
-export async function makeHarness(opts: { maxAttempts?: number; fakeEnv?: Record<string, string>; providerExtra?: Record<string, unknown> } = {}): Promise<Harness> {
+export async function makeHarness(opts: { maxAttempts?: number; fakeEnv?: Record<string, string>; providerExtra?: Record<string, unknown>; secondProvider?: boolean } = {}): Promise<Harness> {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "think-test-"));
   const appDir = path.join(root, "app");
   await fs.mkdir(path.join(appDir, "config"), { recursive: true });
@@ -59,19 +59,22 @@ export async function makeHarness(opts: { maxAttempts?: number; fakeEnv?: Record
       agent: { idleShutdownSeconds: 3600, defaultProvider: "fake" },
     }),
   );
+  const fake = {
+    label: "Fake agent",
+    command: process.execPath,
+    args: [path.join(APP_DIR, "test", "fixtures", "fake-agent.mjs")],
+    env: { FAKE_AGENT_LOG: log, NODE_PATH: path.join(APP_DIR, "node_modules"), ...(opts.fakeEnv ?? {}) },
+    auth: "login",
+    instructionsFile: "AGENTS.md",
+    instructionsTemplate: "project-agents.md",
+    ...(opts.providerExtra ?? {}),
+  };
   await fs.writeFile(
     path.join(appDir, "config", "providers.json"),
     JSON.stringify({
-      fake: {
-        label: "Fake agent",
-        command: process.execPath,
-        args: [path.join(APP_DIR, "test", "fixtures", "fake-agent.mjs")],
-        env: { FAKE_AGENT_LOG: log, NODE_PATH: path.join(APP_DIR, "node_modules"), ...(opts.fakeEnv ?? {}) },
-        auth: "login",
-        instructionsFile: "AGENTS.md",
-        instructionsTemplate: "project-agents.md",
-        ...(opts.providerExtra ?? {}),
-      },
+      fake,
+      // The same fake agent under another name, for switching a canvas between providers.
+      ...(opts.secondProvider ? { other: { ...fake, label: "Other agent" } } : {}),
     }),
   );
   const paths = resolvePaths({ THINK_ROOT: root, THINK_APP_DIR: appDir });

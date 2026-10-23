@@ -615,3 +615,43 @@ describe("a provider's sign-in mode", () => {
     }
   });
 });
+
+describe("switching the agent", () => {
+  it("hands the canvas to another provider in a new conversation", async () => {
+    h = await makeHarness({ secondProvider: true });
+    const snap = h.messages.find((m) => m.type === "project.snapshot");
+    expect(snap?.type === "project.snapshot" && snap.project.providers.map((p) => p.id)).toEqual(["fake", "other"]);
+    await send(h, { type: "agent.prompt", text: "first" });
+    await h.waitIdle();
+    const before = (await h.store.readState(h.runtime.slug)).sessionId;
+    expect(before).not.toBeNull();
+
+    await expect(send(h, { type: "agent.switch", provider: "nope" })).rejects.toThrow(/no agent provider/);
+    await send(h, { type: "agent.switch", provider: "other" });
+
+    const think = JSON.parse(await fs.readFile(path.join(h.dir, "think.json"), "utf8"));
+    expect(think.provider).toBe("other");
+    expect((await log(h))[0]).toBe("think|think: switched the agent to Other agent");
+    expect(h.messages.some((m) => m.type === "project.meta" && m.provider.id === "other" && m.provider.label === "Other agent")).toBe(true);
+    expect(chat(h).filter((e) => e.kind === "divider").map((e) => (e as { text: string }).text)).toEqual(["Switched to Other agent · new conversation"]);
+    expect(h.runtime.providerId).toBe("other");
+
+    // A fresh session (nothing resumed), and it takes prompts.
+    await waitFor(() => h!.runtime.agentState === "ready", "the new agent to be ready");
+    await send(h, { type: "agent.prompt", text: "second" });
+    await h.waitIdle();
+    const after = (await h.store.readState(h.runtime.slug)).sessionId;
+    expect(after).not.toBeNull();
+    expect(after).not.toBe(before);
+    // Only one divider: the switch's own, not a second "New agent session".
+    expect(chat(h).filter((e) => e.kind === "divider")).toHaveLength(1);
+  });
+
+  it("waits for a running turn", async () => {
+    h = await makeHarness({ secondProvider: true });
+    await send(h, { type: "agent.prompt", text: "slow" });
+    await expect(send(h, { type: "agent.switch", provider: "other" })).rejects.toThrow(/current turn/);
+    await h.waitIdle();
+    expect(h.runtime.providerId).toBe("fake");
+  });
+});

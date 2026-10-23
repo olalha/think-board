@@ -87,7 +87,9 @@ canvas to format N`), so History shows the upgrade and git keeps the way back.
 A canvas in a newer format than the running build is refused, not guessed at —
 the list marks it "Needs a newer think". `think.json` is managed by the app: a
 valid outside change to the name or settings is adopted, anything else (broken
-JSON, another format or provider) is written back.
+JSON, another format or provider) is written back. The provider changes only
+through the app (`agent.switch`), which also drops the saved session, so the new
+agent starts a new conversation.
 
 ## Reconciliation (`canvas.json` vs the files)
 

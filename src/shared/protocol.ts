@@ -233,7 +233,8 @@ export type GuestEntry =
 export type ServerMessage =
   | {
       type: "project.snapshot";
-      project: { slug: string; name: string; provider: ProviderInfo; settings: CanvasSettings };
+      /** `providers`: every configured agent provider, which the canvas can switch to. */
+      project: { slug: string; name: string; provider: ProviderInfo; providers: ProviderInfo[]; settings: CanvasSettings };
       gridSize: number;
       htmlLiveZoom: number;
       blocks: BlockInfo[];
@@ -256,7 +257,7 @@ export type ServerMessage =
       guests?: GuestInfo[];
       guestThreads?: Record<string, GuestEntry[]>;
     }
-  | { type: "project.meta"; name: string; settings: CanvasSettings }
+  | { type: "project.meta"; name: string; provider: ProviderInfo; settings: CanvasSettings }
   | { type: "readme.changed"; content: string | null }
   | { type: "turn.summary"; lastTurn: LastTurn }
   /** A new point in History (a save, a restore, the app's housekeeping). */
@@ -376,6 +377,8 @@ export type ClientMessage = { ref?: string } & (
   | { type: "agent.permission"; requestId: string; optionId: string | null }
   | { type: "agent.restart" }
   | { type: "agent.newSession" }
+  /** Switch the canvas to another provider's agent, in a new conversation. */
+  | { type: "agent.switch"; provider: string }
   | { type: "login.start"; methodId: string; cols: number; rows: number }
   | { type: "login.input"; data: string }
   | { type: "login.resize"; cols: number; rows: number }

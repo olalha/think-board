@@ -515,6 +515,15 @@
   gap: 8px;
   flex-wrap: wrap;
 }
+.agent-card-switch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
 .agent-card.error {
   border-color: color-mix(in srgb, var(--danger) 30%, var(--border));
 }
