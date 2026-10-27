@@ -10,6 +10,7 @@ How versions and releases work: "Versioning and releases" in
 - **Security:** Node 24.22.1 in both containers (the Brotli fix), pinned in the
   Dockerfile, and the newest agent adapters: Claude Code's agent SDK 0.3.311
   and Codex's adapter 2.3.0, on version 2 of the Agent Client Protocol library.
+- **Security:** DOMPurify 3.4.17, which sanitises HTML before the app shows it.
 
 ## 0.6.2
 
