@@ -1,6 +1,6 @@
 {
   "name": "think-board",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "private": true,
   "description": "A self-hosted canvas for thinking with an AI agent: blocks are files, each canvas has its own agent.",
   "license": "MIT",
@@ -27,9 +27,9 @@
     "screenshots": "vite build --logLevel error && node scripts/screenshots.mjs"
   },
   "dependencies": {
-    "@agentclientprotocol/claude-agent-acp": "0.90.0",
-    "@agentclientprotocol/codex-acp": "1.13.1",
-    "@agentclientprotocol/sdk": "1.8.0",
+    "@agentclientprotocol/claude-agent-acp": "0.97.0",
+    "@agentclientprotocol/codex-acp": "2.3.0",
+    "@agentclientprotocol/sdk": "2.0.2",
     "@fastify/static": "^10.1.6",
     "@fastify/websocket": "^11.3.4",
     "@resvg/resvg-js": "2.6.2",
@@ -80,5 +80,8 @@
   "allowScripts": {
     "esbuild@0.28.2": true,
     "node-pty@1.1.0": true
+  },
+  "overrides": {
+    "@anthropic-ai/claude-agent-sdk": "0.3.311"
   }
 }
