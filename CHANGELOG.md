@@ -5,6 +5,13 @@ before 1.0, a minor version may change things that are not backwards compatible.
 How versions and releases work: "Versioning and releases" in
 [docs/development.md](docs/development.md).
 
+## 0.6.3
+
+- **Security:** Node 24.22.1 in both containers (the Brotli fix), pinned in the
+  Dockerfile, and the newest agent adapters: Claude Code's agent SDK 0.3.311
+  and Codex's adapter 2.3.0, on version 2 of the Agent Client Protocol library.
+- **Security:** DOMPurify 3.4.17, which sanitises HTML before the app shows it.
+
 ## 0.6.2
 
 - **Switch a canvas's agent:** the chat's ⋯ menu (*Switch to …*) and the login
