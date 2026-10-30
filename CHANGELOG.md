@@ -5,6 +5,11 @@ before 1.0, a minor version may change things that are not backwards compatible.
 How versions and releases work: "Versioning and releases" in
 [docs/development.md](docs/development.md).
 
+## 0.6.4
+
+- **Security:** fast-uri 3.1.9 and 4.2.3 (used by the server's request
+  validation) and undici 8.12.3 (used by jsdom).
+
 ## 0.6.3
 
 - **Security:** Node 24.22.1 in both containers (the Brotli fix), pinned in the
