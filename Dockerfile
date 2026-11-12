@@ -7,7 +7,7 @@
 
 # Node is pinned to an exact release, so a cached older image can't be built on
 # by mistake; Dependabot proposes a newer one when this one has a security fix.
-FROM node:24.22.1-bookworm-slim AS build
+FROM node:24.22.3-bookworm-slim AS build
 # node-pty has no Linux prebuilds: compile it here, never in the runtime image.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends python3 make g++ \
@@ -18,7 +18,7 @@ RUN npm ci --no-audit --no-fund
 COPY . .
 RUN npm run build && npm prune --omit=dev --no-audit --no-fund
 
-FROM node:24.22.1-bookworm-slim
+FROM node:24.22.3-bookworm-slim
 # fonts-inter: text drawn on images renders in the app's own typeface.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends git ca-certificates fonts-inter \
