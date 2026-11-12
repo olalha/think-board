@@ -5,6 +5,15 @@ before 1.0, a minor version may change things that are not backwards compatible.
 How versions and releases work: "Versioning and releases" in
 [docs/development.md](docs/development.md).
 
+## 0.6.4
+
+- **Security:** Node 24.22.3 in both containers (fixes for HTTP/2 and TLS).
+- **Security:** fast-uri 3.1.9 and 4.2.3 (used by the server's request
+  validation), undici 8.12.3 (used by jsdom), and @fastify/static 10.1.10 with
+  glob 14 and minimatch 11 (`npm audit --omit=dev` is now clean).
+- The newest agent adapters: Claude Code's 0.106.0 (agent SDK 0.3.322) and
+  Codex's 2.6.0, with think's Agent Client Protocol library at 2.6.0.
+
 ## 0.6.3
 
 - **Security:** Node 24.22.1 in both containers (the Brotli fix), pinned in the
