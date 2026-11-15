@@ -18,6 +18,8 @@ How versions and releases work: "Versioning and releases" in
   text from the rendered view and as Markdown from the raw view.
 - `think link` takes `--from-side` and `--to-side` (top, right, bottom or left) to choose
   where an arrow attaches to each block, on a new or an existing link.
+- Pressing Z again on a very tall or wide block zooms in on its start so the text is
+  readable; a third press fits it whole again.
 
 ## 0.6.4
 

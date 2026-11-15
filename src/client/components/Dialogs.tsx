@@ -133,7 +133,7 @@ const SHORTCUTS: ShortcutGroup[] = [
       [["Space", "Drag"], "Pan (or two-finger scroll, middle-drag)"],
       [[M, "Scroll"], "Zoom (a mouse wheel or a pinch zooms too)"],
       [["F"], "Fit everything in view"],
-      [["Z"], "Zoom to the selection"],
+      [["Z"], "Zoom to the selection (again on a long block: fill its short side)"],
       [["0"], "Zoom to 100%"],
       [["Double-click"], "On a title bar or frame name: zoom to it"],
       [["Alt", "←"], "Back to where you were (Alt → forward)"],

@@ -365,6 +365,57 @@ export function zoomToBlock(name: string, opts: { select?: boolean; history?: bo
   }
 }
 
+// Z pressed again on the same block: fit-whole <-> "fill the shorter side". The
+// state is the block, the mode last shown and the viewport that mode should have
+// produced; any pan/zoom since (viewport differs) or another block starts over.
+const BLOCK_PAD = { top: 110, bottom: 100, left: 48, right: 48 };
+const FILL_MIN_GAIN = 1.1;
+let zState: { name: string; mode: "fit" | "fill"; vp: { x: number; y: number; zoom: number }; at: number } | null = null;
+
+/**
+ * Keyboard Z on one block: the first press fits it whole; pressing again fills
+ * the view with its shorter side, anchored at its top (tall) or left end (wide),
+ * so a very long block becomes readable. It alternates, and stays on fit when
+ * the block is near square.
+ */
+export function toggleZoomBlock(name: string): void {
+  const node = rf?.getNode(name);
+  const pane = document.querySelector(".react-flow");
+  if (!rf || !node || !pane) return zoomToBlock(name);
+  const vp = rf.getViewport();
+  const cur = zState;
+  const unmoved =
+    !!cur &&
+    cur.name === name &&
+    (Date.now() - cur.at < 600 ||
+      (Math.abs(cur.vp.x - vp.x) < 2 && Math.abs(cur.vp.y - vp.y) < 2 && Math.abs(cur.vp.zoom - vp.zoom) < 0.001));
+  if (!unmoved || cur!.mode === "fill") {
+    zoomToBlock(name);
+    zState = { name, mode: "fit", vp, at: Date.now() };
+    // fitView's target viewport isn't known here; record it once the animation settles.
+    window.setTimeout(() => {
+      if (zState?.name === name && zState.mode === "fit" && rf) zState = { ...zState, vp: rf.getViewport() };
+    }, 520);
+    return;
+  }
+  const b = rf.getNodesBounds([name]);
+  const { width: W, height: H } = pane.getBoundingClientRect();
+  const aw = W - BLOCK_PAD.left - BLOCK_PAD.right;
+  const ah = H - BLOCK_PAD.top - BLOCK_PAD.bottom;
+  if (!(b.width > 0 && b.height > 0 && aw > 0 && ah > 0)) return zoomToBlock(name);
+  const clamp = (z: number) => Math.max(0.08, Math.min(1.25, z));
+  const fit = clamp(Math.min(aw / b.width, ah / b.height));
+  const tall = b.height > b.width;
+  const fill = clamp(tall ? aw / b.width : ah / b.height);
+  if (fill < fit * FILL_MIN_GAIN) return zoomToBlock(name);
+  const next = tall
+    ? { zoom: fill, x: BLOCK_PAD.left + (aw - b.width * fill) / 2 - b.x * fill, y: BLOCK_PAD.top - b.y * fill }
+    : { zoom: fill, x: BLOCK_PAD.left - b.x * fill, y: BLOCK_PAD.top + (ah - b.height * fill) / 2 - b.y * fill };
+  pushCamera();
+  void rf.setViewport(next, { duration: 400 });
+  zState = { name, mode: "fill", vp: next, at: Date.now() };
+}
+
 /**
  * Draw on an image block: its edit mode. The camera frames the block the way
  * Z does (the drawing toolbar's full-screen button is there for more room),

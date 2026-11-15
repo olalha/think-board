@@ -74,6 +74,7 @@ import {
   setFlowInstance,
   startDrawing,
   stopDrawing,
+  toggleZoomBlock,
   zoomToBlock,
 } from "./actions";
 import { useCanvasUi } from "./ui-state";
@@ -636,7 +637,7 @@ export function BoardCanvas() {
         case "z":
         case "Z": {
           const s = sel();
-          if (s.length === 1) zoomToBlock(s[0]);
+          if (s.length === 1) toggleZoomBlock(s[0]);
           else if (s.length > 1) void rf.fitView({ nodes: s.map((id) => ({ id })), padding: FIT_PADDING, duration: 400 });
           break;
         }
