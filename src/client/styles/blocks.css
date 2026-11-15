@@ -217,6 +217,39 @@
 .md > :last-child {
   margin-bottom: 0;
 }
+/* [[block]] links: an inline chip that flies to the block; struck when no block has the name. */
+.block-link {
+  display: inline;
+  padding: 0 0.35em;
+  border: 0;
+  border-radius: 5px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font: inherit;
+  font-weight: 560;
+  line-height: inherit;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+button.block-link {
+  cursor: pointer;
+}
+button.block-link:hover {
+  background: var(--active);
+  color: var(--accent-hover);
+}
+button.block-link:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+.block-link.missing {
+  background: var(--panel-3);
+  color: var(--text-3);
+  text-decoration: line-through;
+  cursor: default;
+}
 .md h1,
 .md h2,
 .md h3,

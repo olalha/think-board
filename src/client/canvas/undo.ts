@@ -7,9 +7,8 @@
 // their change wins: the step is dropped with a note instead of overwriting
 // their work. Per tab, per canvas; not kept across reloads.
 import type { Canvas } from "../../shared/canvas";
-import { displayName } from "../../shared/blocks";
 import type { LayoutOp } from "../../shared/protocol";
-import { useBoard } from "../lib/store";
+import { labelOf, useBoard } from "../lib/store";
 import { toast } from "../lib/toasts";
 
 export type Outcome = "ok" | "stale" | "failed";
@@ -237,7 +236,7 @@ export function invertLayout(ops: LayoutOp[], canvas: Canvas): { inverse: Layout
 /** What a layout change is called in the undo toast. */
 export function layoutLabel(ops: LayoutOp[]): string {
   const kinds = new Set(ops.map((o) => o.op));
-  const one = (id: string) => displayName(id);
+  const one = (id: string) => labelOf(id);
   if (kinds.size === 1) {
     const op = ops[0];
     switch (op.op) {

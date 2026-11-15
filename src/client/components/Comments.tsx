@@ -6,11 +6,10 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { Bot, Check, CheckCheck, MessageSquare, MessageSquarePlus, PanelLeftOpen, Pencil, RotateCcw, Trash2, X } from "lucide-react";
-import { displayName } from "../../shared/blocks";
 import type { Comment } from "../../shared/protocol";
 import { act } from "../lib/project";
 import { useSettings } from "../lib/settings";
-import { setChatOpen, setSidePanelOpen, useBoard } from "../lib/store";
+import { labelOf, setChatOpen, setSidePanelOpen, useBoard } from "../lib/store";
 import { toast } from "../lib/toasts";
 import { useCanvasUi } from "../canvas/ui-state";
 import { jumped, zoomToBlock } from "../canvas/actions";
@@ -35,7 +34,7 @@ export function targetName(on: string | null): string {
   if (on === null) return "The whole canvas";
   const n = useBoard.getState().canvas.nodes.find((x) => x.id === on);
   if (n?.type === "group") return n.label?.trim() || "Untitled group";
-  return displayName(on);
+  return labelOf(on);
 }
 
 /** Open the chat with a request to address open comments (on one node, or all). */

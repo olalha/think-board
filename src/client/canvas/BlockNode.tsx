@@ -3,11 +3,12 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Handle, NodeResizer, Position, useStore, type NodeProps, type ReactFlowState } from "@xyflow/react";
 import { AlertCircle, BookOpenText, Check, Code2, Eye, FileText, Globe, Image as ImageIcon, Lock, MoreHorizontal, Pencil, PenLine, Shield, Undo2, Workflow, WrapText } from "lucide-react";
-import { BLOCK_SIZES, blockLabel, displayName, isTextType, isValidName, toBlockName, type BlockType } from "../../shared/blocks";
+import { BLOCK_SIZES, blockLabel, isTextType, MAX_TITLE, type BlockType } from "../../shared/blocks";
+import { renamePreview } from "../lib/naming";
 import type { BlockInfo } from "../../shared/protocol";
 import { fileUrl } from "../lib/api";
 import { act, layout } from "../lib/project";
-import { modeOf, setMode, setWrap, useBoard } from "../lib/store";
+import { modeOf, setMode, setWrap, titleIn, useBoard } from "../lib/store";
 import { PHONE, TOUCH, useMedia } from "../lib/device";
 import { effectiveTheme, useSettings } from "../lib/settings";
 // CodeMirror is sizeable: loaded on first edit (and preloaded when idle, see Board).
@@ -17,6 +18,7 @@ import { HtmlView, ImageView, MarkdownView, MermaidView, PdfView } from "../bloc
 import { useCanvasUi } from "./ui-state";
 import { renameBlock, startDrawing, stopDrawing, zoomToBlock } from "./actions";
 import { CommentButton } from "../components/Comments";
+import { useLinkChips } from "./link-chips";
 
 export const TYPE_META: Record<BlockType, { label: string; icon: typeof FileText }> = {
   markdown: { label: "Markdown", icon: FileText },
@@ -69,10 +71,7 @@ export const BlockNode = memo(function BlockNode({ id, selected, width, height }
   const lastValid = useBoard((s) => s.mermaidLastValid[id]);
   const focusRequest = useBoard((s) => s.focusRequest === id);
   const isProtected = useBoard((s) => s.canvas.nodes.some((n) => n.id === id && n.type === "file" && !!n.protected));
-  const title = useBoard((s) => {
-    const n = s.canvas.nodes.find((x) => x.id === id);
-    return n?.type === "file" ? n.title : undefined;
-  });
+  const title = useBoard((s) => titleIn(s.canvas, id));
   const label = blockLabel(id, { title });
   // History preview and agent turns are read-only — except protected blocks,
   // which stay the user's to write in while the agent works.
@@ -93,6 +92,7 @@ export const BlockNode = memo(function BlockNode({ id, selected, width, height }
   const renaming = useCanvasUi((s) => s.renaming === id);
   const flash = useCanvasUi((s) => s.flash === id);
   const theme = useTheme();
+  const linkChips = useLinkChips();
 
   const type: BlockType = block?.type ?? "markdown";
   const Icon = TYPE_META[type].icon;
@@ -177,7 +177,7 @@ export const BlockNode = memo(function BlockNode({ id, selected, width, height }
       case "markdown":
         body = (
           <div className={`block-scroll ${selected ? `nowheel ${touch ? "nopan" : ""}` : ""}`}>
-            <MarkdownView source={block.content ?? ""} resolveFile={resolveFile} />
+            <MarkdownView source={block.content ?? ""} resolveFile={resolveFile} {...linkChips} />
           </div>
         );
         break;
@@ -185,7 +185,7 @@ export const BlockNode = memo(function BlockNode({ id, selected, width, height }
         body = <MermaidView source={block.content ?? ""} theme={theme} errorActions={revertButton} />;
         break;
       case "html":
-        body = <HtmlBody name={id} source={block.content ?? ""} selected={!!selected} width={width} height={height} />;
+        body = <HtmlBody name={id} label={label} source={block.content ?? ""} selected={!!selected} width={width} height={height} />;
         break;
       case "image":
         body = slug ? <ImageView src={tt ? `${fileUrl(slug, block.file)}?rev=${block.hash}` : fileUrl(slug, block.file, block.hash)} alt={label} /> : null;
@@ -337,13 +337,23 @@ export const BlockNode = memo(function BlockNode({ id, selected, width, height }
 
 // ---------------------------------------------------------------- rename
 
-/** Inline name editor in the block header. Enter renames, Esc cancels. */
+/**
+ * Inline name editor in the block header: any text (symbols, emoji) becomes
+ * the block's title, and the file gets that text made a name, shown as a hint
+ * when it changes. Enter renames, Esc cancels.
+ */
 function NameEditor({ name }: { name: string }) {
-  const [value, setValue] = useState(displayName(name));
+  const title = useBoard((s) => titleIn(s.canvas, name));
+  const [value, setValue] = useState(() => blockLabel(name, { title }));
   const [error, setError] = useState<string | null>(null);
   const ref = useRef<HTMLInputElement>(null);
   const done = useRef(false);
-  const target = toBlockName(value);
+  const preview = useMemo(() => {
+    const s = useBoard.getState();
+    const taken = new Set([...Object.keys(s.blocks), ...s.canvas.nodes.filter((n) => n.type === "group").map((n) => n.id)]);
+    taken.delete(name);
+    return renamePreview(value, name, title, taken);
+  }, [value, name, title]);
   useEffect(() => {
     ref.current?.focus();
     ref.current?.select();
@@ -351,25 +361,27 @@ function NameEditor({ name }: { name: string }) {
   const close = () => useCanvasUi.setState({ renaming: null });
   const commit = async () => {
     if (done.current) return;
-    if (!target || target === name) {
+    if (!preview) {
       done.current = true;
       return close();
     }
-    if (!isValidName(target)) return setError("Use letters, digits and spaces");
-    if (useBoard.getState().blocks[target]) return setError(`“${displayName(target)}” exists`);
+    if (preview.error) return setError(preview.error);
     done.current = true;
-    const ok = await renameBlock(name, target);
+    const ok = await renameBlock(name, value);
     close();
     if (ok) useBoard.setState({ focusRequest: null });
   };
+  const ext = useBoard.getState().blocks[name]?.file.split(".").pop() ?? "";
+  const hint = error ?? preview?.error ?? (preview && preview.name !== name ? `File: ${preview.name}.${ext}` : "");
   return (
     <span className="name-editor nodrag">
       <input
         ref={ref}
         className={`name-input ${error ? "invalid" : ""}`}
         value={value}
-        maxLength={60}
+        maxLength={MAX_TITLE}
         spellCheck={false}
+        aria-label="Block title"
         onChange={(e) => {
           setValue(e.target.value);
           setError(null);
@@ -387,7 +399,7 @@ function NameEditor({ name }: { name: string }) {
           else if (!done.current) close();
         }}
       />
-      <span className={`name-hint ${error ? "danger-text" : ""}`}>{error ?? (target && target !== name ? `${target}.${useBoard.getState().blocks[name]?.file.split(".").pop() ?? ""}` : "")}</span>
+      <span className={`name-hint ${error || preview?.error ? "danger-text" : ""}`}>{hint}</span>
     </span>
   );
 }
@@ -423,7 +435,7 @@ function useOnScreen(name: string, width?: number, height?: number): boolean {
   );
 }
 
-function HtmlBody({ name, source, selected, width, height }: { name: string; source: string; selected: boolean; width?: number; height?: number }) {
+function HtmlBody({ name, label, source, selected, width, height }: { name: string; label: string; source: string; selected: boolean; width?: number; height?: number }) {
   const pref = useSettings((s) => s.htmlPreviews);
   const threshold = useBoard((s) => s.htmlLiveZoom);
   const visible = useOnScreen(name, width, height);
@@ -440,7 +452,7 @@ function HtmlBody({ name, source, selected, width, height }: { name: string; sou
   }
   return (
     <div className={`html-wrap ${selected ? "interactive nowheel" : ""}`}>
-      <HtmlView source={source} title={displayName(name)} theme={theme} />
+      <HtmlView source={source} title={label} theme={theme} />
       {!selected && <div className="html-shield" title="Select the block to interact with it" />}
     </div>
   );

@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import type { AskAnswer, AskQuestion, ChatEntry } from "../../shared/protocol";
 import { MarkdownView } from "../blocks/renderers";
+import { useLinkChips } from "../canvas/link-chips";
 import { act } from "../lib/project";
 import { toast } from "../lib/toasts";
 
@@ -59,16 +60,29 @@ function splitReport(text: string): { head: string; sections: { title: string; b
 
 function AgentEntry({ text, streaming, command }: { text: string; streaming: boolean; command: boolean }) {
   const report = command && !streaming ? splitReport(text) : null;
+  const links = useLinkChips();
   return (
     <div className={`chat-agent${report?.sections.length ? " chat-report" : ""}`}>
-      <MarkdownView source={report ? report.head : text} />
+      <MarkdownView source={report ? report.head : text} {...links} />
       {report?.sections.map((s) => (
         <details key={s.title} className="chat-report-section">
           <summary>{s.title}</summary>
-          <MarkdownView source={s.body} />
+          <MarkdownView source={s.body} {...links} />
         </details>
       ))}
       {streaming ? <span className="caret" /> : text.trim() && <CopyReply text={text} />}
+    </div>
+  );
+}
+
+function GuestEntry({ by, ts, text }: { by: string; ts: number; text: string }) {
+  const links = useLinkChips();
+  return (
+    <div className="chat-guest">
+      <div className="chat-guest-head">
+        <Bot size={13} /> <b>{by}</b> <span className="muted">· outside agent · {time(ts)}</span>
+      </div>
+      <MarkdownView source={text} {...links} />
     </div>
   );
 }
@@ -114,14 +128,7 @@ export const ChatEntryView = memo(function ChatEntryView({ entry, streaming, com
     case "system":
       return <SystemEntry entry={entry} />;
     case "guest":
-      return (
-        <div className="chat-guest">
-          <div className="chat-guest-head">
-            <Bot size={13} /> <b>{entry.by}</b> <span className="muted">· outside agent · {time(entry.ts)}</span>
-          </div>
-          <MarkdownView source={entry.text} />
-        </div>
-      );
+      return <GuestEntry by={entry.by} ts={entry.ts} text={entry.text} />;
     case "divider":
       return (
         <div className="chat-divider">

@@ -96,13 +96,19 @@ function inlineCode(md: string, from: number, to: number): [number, number][] {
 export function findBlockLinks(md: string): BlockLink[] {
   const code = codeRanges(md);
   const inCode = (at: number) => code.some(([s, e]) => at >= s && at < e);
+  return linksInText(md).filter((l) => !inCode(l.start));
+}
+
+/**
+ * Every `[[…]]` link in a plain run of text, code or not — for text already
+ * known to be prose (a text node of parsed Markdown).
+ */
+export function linksInText(text: string): BlockLink[] {
   const links: BlockLink[] = [];
-  for (const m of md.matchAll(LINK_RE)) {
-    const start = m.index;
-    if (inCode(start)) continue;
+  for (const m of text.matchAll(LINK_RE)) {
     const target = m[1].trim();
     if (!target) continue;
-    links.push({ target, ...(m[2] !== undefined ? { text: m[2] } : {}), start, end: start + m[0].length });
+    links.push({ target, ...(m[2] !== undefined ? { text: m[2] } : {}), start: m.index, end: m.index + m[0].length });
   }
   return links;
 }

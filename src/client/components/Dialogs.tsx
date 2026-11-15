@@ -9,7 +9,7 @@ import { modLabel } from "../lib/keys";
 import { matches, TOUCH } from "../lib/device";
 import { useSettings, type Settings as S } from "../lib/settings";
 import { act } from "../lib/project";
-import { useBoard } from "../lib/store";
+import { labelOf, useBoard } from "../lib/store";
 import { useCanvasUi } from "../canvas/ui-state";
 
 export function Dialog({ title, icon, onClose, children, footer, wide, tall }: { title: string; icon?: ReactNode; onClose: () => void; children: ReactNode; footer?: ReactNode; wide?: boolean; tall?: boolean }) {
@@ -70,7 +70,7 @@ export function DialogHost({ inBoard }: { inBoard: boolean }) {
       {dialog === "settings" && <SettingsDialog inBoard={inBoard} onClose={() => setDialog(null)} />}
       {confirm && <ConfirmDialog />}
       {issues && (
-        <Dialog title={`Problems in ${displayName(issues.id)}`} icon={<AlertCircle size={18} className="danger-text" />} onClose={() => useCanvasUi.getState().hideIssues()}>
+        <Dialog title={`Problems in ${labelOf(issues.id)}`} icon={<AlertCircle size={18} className="danger-text" />} onClose={() => useCanvasUi.getState().hideIssues()}>
           <pre className="issues-pre">{issues.text}</pre>
           <p className="muted small">The agent is told about validation errors automatically after its turn. You can also ask it to fix them.</p>
         </Dialog>
@@ -318,8 +318,9 @@ function HelpDialog({ onClose, inBoard }: { onClose: () => void; inBoard: boolea
             <li><b>One editor at a time.</b> While the agent works, editing pauses (you can still pan, zoom and read). Your edits are committed to the canvas's git history before each message.</li>
             <li><b>Other agents can join.</b> An agent on this machine (Claude Code in a terminal, Codex…) can work on a canvas with the <code>think</code> command. While it is here it has a tab in the chat, its edits are ringed with its name, and History keeps them under it. It can't read replies in think — answer it where you usually talk to it.</li>
             <li><b>Groups and views.</b> Frame related blocks with <kbd>G</kbd>; dragging a frame carries its blocks. Save viewpoints in the side panel and present them with <kbd>P</kbd>.</li>
-            <li><b>Rename</b> a block with the pencil next to its name (or <kbd>F2</kbd>); its connections follow.</li>
+            <li><b>Rename</b> a block with the pencil next to its name (or <kbd>F2</kbd>). Any text works as its title, emoji too; the file is renamed to match, and its connections and links follow.</li>
             <li><b>Edit and preview.</b> Edit the raw text; the preview is read-only. Markdown can show canvas images with <code>![](sally.png)</code>.</li>
+            <li><b>Link blocks</b> in Markdown: type <kbd>@</kbd> or <code>[[</code> in the raw editor and pick a block. The link, <code>[[harry]]</code>, shows as a chip that flies to it.</li>
             <li><b>Images</b> can be drawn on (<kbd>Enter</kbd>), or start as a blank page (<kbd>S</kbd>). History keeps every version.</li>
             {inBoard && <li><b>Connect blocks</b> by dragging from the dots on any side. Right-click a connection for arrowheads and labels, or click its middle dot to label it.</li>}
           </ul>

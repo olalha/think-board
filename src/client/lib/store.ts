@@ -3,6 +3,7 @@
 // (applyServerMessage) so the protocol stays easy to extend.
 import { create } from "zustand";
 import type { Canvas } from "../../shared/canvas";
+import { blockLabel } from "../../shared/blocks";
 import type {
   AgentCommand,
   AgentStatus,
@@ -152,6 +153,23 @@ export function resetBoard(slug: string): void {
 }
 
 /** The reply drafted in an outside agent's tab ("" forgets it). */
+/** A block's title, from its canvas node (undefined when it has none). */
+export function titleIn(canvas: Canvas, name: string): string | undefined {
+  const n = canvas.nodes.find((x) => x.id === name);
+  return n?.type === "file" ? n.title : undefined;
+}
+
+/** What people see as a block's name right now: its title, else its name made readable. */
+export function labelOf(name: string): string {
+  return blockLabel(name, { title: titleIn(useBoard.getState().canvas, name) });
+}
+
+/** The label of a block, kept current (titles live on the canvas, which changes often). */
+export function useBlockLabel(name: string): string {
+  const title = useBoard((s) => titleIn(s.canvas, name));
+  return blockLabel(name, { title });
+}
+
 export function setGuestDraft(name: string, text: string): void {
   const s = useBoard.getState();
   const guestDrafts = { ...s.guestDrafts };

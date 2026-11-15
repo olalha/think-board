@@ -48,11 +48,10 @@ import {
   type Rotation,
   type Shape,
 } from "../../shared/drawing";
-import { displayName } from "../../shared/blocks";
 import { preloadImage, uploadDrawingBase } from "../lib/api";
 import { modLabel } from "../lib/keys";
 import { act, currentSlug, registerFlusher } from "../lib/project";
-import { useBoard } from "../lib/store";
+import { labelOf, useBoard } from "../lib/store";
 import { toast } from "../lib/toasts";
 import { pickImage } from "../canvas/actions";
 import { useCanvasUi, type PageChoice } from "../canvas/ui-state";
@@ -273,7 +272,7 @@ export default function DrawingSession({ name, onDone }: { name: string; onDone:
   if (!drawing) {
     return (
       <div className="drawing-loading">
-        <span className="spinner" /> Opening {displayName(name)}…
+        <span className="spinner" /> Opening {labelOf(name)}…
       </div>
     );
   }
@@ -309,7 +308,7 @@ export default function DrawingSession({ name, onDone }: { name: string; onDone:
     <>
       <div className="drawing-fullscreen-placeholder">Drawing in full screen…</div>
       {createPortal(
-        <div className="drawing-fullscreen" role="dialog" aria-label={`Drawing on ${displayName(name)}`}>
+        <div className="drawing-fullscreen" role="dialog" aria-label={`Drawing on ${labelOf(name)}`}>
           <Surface {...props} />
         </div>,
         document.body,

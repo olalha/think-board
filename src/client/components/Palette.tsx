@@ -19,10 +19,11 @@ import {
   Settings,
   Workflow,
 } from "lucide-react";
-import { displayName, type BlockType } from "../../shared/blocks";
-import { useBoard, setChatOpen, setSidePanelOpen } from "../lib/store";
+import { blockLabel, type BlockType } from "../../shared/blocks";
+import { useBoard, setChatOpen, setSidePanelOpen, titleIn } from "../lib/store";
 import { loadLocal, saveLocal, useSettings } from "../lib/settings";
 import { modLabel } from "../lib/keys";
+import { fuzzy } from "../lib/fuzzy";
 import { createBlock, fitAll, goToView, zoomToBlock } from "../canvas/actions";
 import { useCanvasUi } from "../canvas/ui-state";
 import { startPresenting } from "./Present";
@@ -40,33 +41,6 @@ interface Item {
   /** Characters of `title` that matched, for highlighting. */
   hits?: number[];
   run: () => void;
-}
-
-/**
- * Subsequence match with bonuses for word starts and runs, like editor
- * "go to file". Returns null when `q` is not a subsequence of `text`.
- */
-export function fuzzy(q: string, text: string): { score: number; hits: number[] } | null {
-  if (!q) return { score: 0, hits: [] };
-  const t = text.toLowerCase();
-  const query = q.toLowerCase();
-  const hits: number[] = [];
-  let score = 0;
-  let ti = 0;
-  let prev = -2;
-  for (const ch of query) {
-    if (ch === " ") continue;
-    const at = t.indexOf(ch, ti);
-    if (at === -1) return null;
-    const wordStart = at === 0 || /[\s\-_./]/.test(t[at - 1]);
-    score += 1 + (wordStart ? 3 : 0) + (at === prev + 1 ? 2 : 0);
-    hits.push(at);
-    prev = at;
-    ti = at + 1;
-  }
-  if (t.startsWith(query)) score += 6;
-  score -= Math.min(4, (t.length - hits.length) / 20);
-  return { score, hits };
 }
 
 function snippet(content: string, q: string): string | null {
@@ -119,6 +93,7 @@ function PaletteInner() {
       const recent = loadLocal<string[]>(recentKey, []);
       saveLocal(recentKey, [key, ...recent.filter((k) => k !== key)].slice(0, 6));
     };
+    const label = (name: string) => blockLabel(name, { title: titleIn(canvas, name) });
     const blockItem = (name: string, section: Item["section"], score: number, hits?: number[], detail?: string): Item | null => {
       const b = blocks[name];
       if (!b) return null;
@@ -127,7 +102,7 @@ function PaletteInner() {
         key: `b:${name}`,
         section,
         icon: <Icon size={15} />,
-        title: displayName(name),
+        title: label(name),
         detail: detail ?? firstHeading(b.content) ?? b.file,
         score,
         hits,
@@ -141,9 +116,11 @@ function PaletteInner() {
     // Blocks: by name first, then by heading or content.
     for (const name of Object.keys(blocks)) {
       const b = blocks[name];
-      const byName = fuzzy(query, displayName(name));
+      // By its label (highlighted), or by its file name when the title reads differently.
+      const byLabel = fuzzy(query, label(name));
+      const byName = byLabel ?? (query.length > 1 ? fuzzy(query, name) : null);
       if (byName) {
-        const it = blockItem(name, "Blocks", byName.score + 10, byName.hits);
+        const it = blockItem(name, "Blocks", byName.score + 10, byLabel?.hits);
         if (it) out.push(it);
         continue;
       }

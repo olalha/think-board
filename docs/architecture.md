@@ -51,7 +51,8 @@ outside agents ─ bin/think ── files in ROOT/guests/ ──▶ GuestBridge 
 | `src/server/agent/env.ts` | the agent's environment allowlist and isolated HOME |
 | `src/server/templates.ts` | prompt templates, read at use time |
 | `src/shared/protocol.ts` | the WebSocket message types — the one place to extend the protocol |
-| `src/client/blocks/renderers.tsx` | pure block renderers (also used by `/render/<project>/<block>`) |
+| `src/client/blocks/renderers.tsx` | pure block renderers (also used by `/render/<project>/<block>`); `[[links]]` become chips via a remark plugin (`block-links.ts`), labelled and made clickable by optional props (`canvas/link-chips.ts`) |
+| `src/client/blocks/link-picker.ts` | the raw editor's `@` / `[[` block picker (CodeMirror autocompletion) |
 | `src/client/canvas/*` | React Flow canvas, nodes, edges, menus, shortcuts |
 | `src/client/chat/*` | chat panel, transcript entries, login dialog |
 
