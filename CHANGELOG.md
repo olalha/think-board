@@ -9,6 +9,8 @@ How versions and releases work: "Versioning and releases" in
 
 - **Fix:** text pasted just after creating a block, or with a fresh block
   selected, goes into that block instead of also becoming a new one.
+- **Fix:** the font size setting (now "Text size", 12–17) also sizes rendered
+  blocks and chat replies; before, it changed only the raw editor.
 
 ## 0.6.4
 

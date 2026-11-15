@@ -195,7 +195,7 @@
 /* ---- markdown ------------------------------------------------------------ */
 .md,
 .chat-agent {
-  font-size: 13.5px;
+  font-size: calc(13.5px * var(--text-scale, 1));
   line-height: 1.6;
   color: var(--text);
   overflow-wrap: anywhere;

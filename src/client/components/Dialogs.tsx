@@ -398,10 +398,10 @@ function SettingsDialog({ inBoard, onClose }: { inBoard: boolean; onClose: () =>
           <Row label="New blocks open in">
             <Segmented value={s.newBlockMode} options={[["raw", "Raw"], ["rendered", "Rendered"]]} onChange={set("newBlockMode")} />
           </Row>
-          <Row label="Editor font size">
+          <Row label="Text size">
             <Segmented
-              value={String(s.editorFontSize) as "12" | "13" | "14" | "15"}
-              options={[["12", "12"], ["13", "13"], ["14", "14"], ["15", "15"]]}
+              value={String(s.editorFontSize) as "12" | "13" | "14" | "15" | "16" | "17"}
+              options={[["12", "12"], ["13", "13"], ["14", "14"], ["15", "15"], ["16", "16"], ["17", "17"]]}
               onChange={(v) => s.set("editorFontSize", Number(v))}
             />
           </Row>
