@@ -12,7 +12,7 @@
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-blue"></a>
 </p>
 
-Every block on a think canvas is a real file — Markdown, Mermaid, HTML, images —
+Every block on a think canvas is a real file — Markdown, Mermaid, HTML, images, PDFs —
 and the canvas is a live view of a folder that is a git repository. So any
 coding agent can work on it: each canvas has its own (Claude Code or Codex), and
 agents in your terminal join with one command. One `docker compose up` runs it

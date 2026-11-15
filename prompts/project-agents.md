@@ -49,8 +49,9 @@ and run `think read` (what is where).
 | `work/` | Scratch space: notes, downloads, scripts, data. Never shown on the canvas. |
 
 Anything else at the top level is flagged. Never touch `.think/` (the app's
-private state) or `.drawings/` (drawings on images — see below), and do not
-edit `{{instructions_file}}`: the app regenerates it.
+private state; reading the PDF text in `.think/text/` is fine) or `.drawings/`
+(drawings on images — see below), and do not edit `{{instructions_file}}`: the
+app regenerates it.
 
 ## Blocks
 
@@ -65,6 +66,7 @@ create `tea-flowchart.md` next to `tea-flowchart.mmd`.
 | `.mmd` | Mermaid | Mermaid source only, no ```` ``` ```` fences. Must parse, or the block shows an error. Prefer top-to-bottom layouts (`flowchart TD`); wide diagrams render small. |
 | `.html` | HTML | One **self-contained** file: CSS and JS inline, no external files, no network requests. It runs in a sandboxed iframe. **Make it look right in light and dark:** declare `color-scheme: light dark`, keep colours in CSS variables, and set the dark ones under `@media (prefers-color-scheme: dark)` — the app answers that with its own theme setting. |
 | `.png` `.jpg` `.jpeg` `.webp` `.gif` | Image | Usually added by the user. You can read them. |
+| `.pdf` | PDF | Added by the user, or a `.pdf` file you place here (you can't write one as a block). Read it directly if you can, or its extracted text in `.think/text/<name>.pdf.txt`. |
 
 - **A new block:** give it a short, descriptive name of one to four words —
   `tea-flowchart`, `trip-ideas`, `open-questions` — so the user can find it

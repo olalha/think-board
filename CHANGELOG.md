@@ -21,6 +21,8 @@ How versions and releases work: "Versioning and releases" in
 - Pressing Z again on a very tall or wide block zooms in on its start so the text is
   readable; a third press fits it whole again.
 - Drag the ends of a selected arrow to attach it to another side or another block.
+- **PDF blocks:** drop, paste or upload a PDF (up to 25 MB) to read it on the canvas; agents
+  read it too, Codex through its extracted text.
 
 ## 0.6.4
 
