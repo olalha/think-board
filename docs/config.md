@@ -19,7 +19,7 @@ settings, managed from the app: see docs/architecture.md, "Canvas format".)
 | Key | Default | Meaning |
 |---|---|---|
 | `gridSize` | `20` | grid in px; positions and sizes snap to it |
-| `html.liveZoomThreshold` | `0.45` | HTML blocks mount a live iframe only at or above this zoom (and on screen) |
+| `html.liveZoomThreshold` | `0.45` | HTML blocks mount a live iframe only at or above this zoom (and on screen); PDF blocks draw their pages less sharp below it |
 | `validation.maxAttempts` | `2` | automatic validation follow-ups per turn |
 | `git.defaultAutosaveSeconds` | `60` | autosave for new canvases (and canvases upgraded from 0.2): how long after the first unsaved edit it becomes a point in History. `0` = only on Save now. Each canvas then keeps its own setting in its `think.json`; edits are always written to disk as you type, and committed before every agent turn and when the canvas closes |
 | `agent.idleShutdownSeconds` | `60` | stop a canvas's agent this long after its last tab closes |
@@ -89,6 +89,6 @@ descriptively instead, and anyone can rename a block.
 | `THINK_PUBLIC_URL` | unset | the app's address as people open it (e.g. `https://think.example.com`): `think new` and `think url` print links with it |
 | `THINK_COMMIT` | unset | commit shown next to the version (a Docker build argument) |
 
-Per-browser preferences (theme, minimap, scrolling, editor font size, HTML
+Per-browser preferences (theme, minimap, scrolling, text size, HTML
 previews, delete confirmation, new-block mode, follow the agent, the side
 panel) are in the app's Settings and stored in the browser.

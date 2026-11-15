@@ -37,6 +37,12 @@ export const BlockEdge = memo(function BlockEdge(props: EdgeProps) {
         className={`${selected ? "edge-selected" : ""} line-${lineStyle}`}
         style={lineStyle === "solid" ? undefined : { strokeDasharray: DASH[lineStyle], strokeLinecap: "round" }}
       />
+      {selected && !locked && (
+        <>
+          <circle className="edge-end-handle" cx={sourceX} cy={sourceY} r={6} />
+          <circle className="edge-end-handle" cx={targetX} cy={targetY} r={6} />
+        </>
+      )}
       <EdgeLabelRenderer>
         <div
           className={`edge-label-anchor nodrag nopan ${selected ? "selected" : ""}`}

@@ -30,7 +30,15 @@ The canvas (both kinds of agent)
 
 Outside agents (with --as NAME on every command)
   list · new · join · lock · unlock · say · leave · status · url · path · chat · skill
+
+The canvas's own agent only
+  ask
 ```
+
+`think rename <block> "Title"` gives a block a free-text title and renames its file
+to match; Markdown blocks link to each other with `[[block-name]]`, and think rewrites
+those links whenever a block's file is renamed — for an outside agent, when it unlocks,
+in its own commit.
 
 ## Outside agents, step by step
 
@@ -71,14 +79,26 @@ Outside agents (with --as NAME on every command)
 `think` is on its PATH (`bin/canvas-agent/`, which holds only that), and works
 during its turn. Its name is always `agent`; `join`, `lock`, `say` and `leave`
 are refused with an explanation. `think summary "…"` heads the commit think
-makes of the turn. Commits the agent makes itself (older sessions were told to)
+makes of the turn.
+
+`think ask` is for it alone (outside agents ask their user wherever they
+usually talk to them): it reads 1–4 questions with 2–4 options each as JSON on
+stdin, shows them as a card in the canvas chat, and prints the user's answers,
+one line per question (`<question> → <label>, …, Other: <text>`), or that the
+user skipped them. The user can always type an answer of their own. One call
+waits at most 100 s, under the shell tools' timeouts; then the server answers
+`pending` instead of `ok`, the command prints "Still waiting … Run: think ask
+--wait <id>" and exits with 3, and `--wait` waits for the same questions again.
+Stopping the turn, the turn ending or the agent process ending cancels
+questions still open (exit 1); the card says so. Commits the agent makes itself (older sessions were told to)
 are still accepted.
 
 ## How it works
 
 The command writes a request file and waits for the answer file
 (`src/server/requests.ts`). A refusal (the canvas is busy, the block is
-protected, no such block) comes back on stderr with a non-zero exit.
+protected, no such block) comes back on stderr with a non-zero exit. An answer
+that is not ready yet (`think ask` after its wait) comes back as `pending`.
 
 - **Outside agents** use `ROOT/guests/` (`src/server/guests.ts`). That folder is
   mounted into the app's container only, so the ability to write it (the user

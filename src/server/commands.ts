@@ -8,8 +8,8 @@
 // canvas agent only during its turn, an outside agent once it has joined, and
 // the commands that change something only while it holds the canvas lock.
 
-import { displayName, parseBlockFile, type BlockType } from "../shared/blocks.js";
-import type { Canvas, CanvasNode, EdgeStyle, GroupNode } from "../shared/canvas.js";
+import { blockLabel, parseBlockFile, type BlockType } from "../shared/blocks.js";
+import type { Canvas, CanvasNode, EdgeStyle, FileNode, GroupNode, Side } from "../shared/canvas.js";
 import type { Comment } from "../shared/protocol.js";
 import { MAX_COMMENT } from "./comments.js";
 import {
@@ -83,7 +83,8 @@ export interface CommandHost {
   comments(): Promise<Comment[]>;
   /** Write a new layout; `touched` are the nodes the change was about (ringed in the tabs). */
   setLayout(next: Canvas, touched: string[]): Promise<void>;
-  rename(name: string, to: string): Promise<void>;
+  /** Rename a block to a name or free text (see renameTarget); says what it is called now. */
+  rename(name: string, to: string): Promise<{ name: string; title?: string }>;
   remove(names: string[]): Promise<void>;
   setComments(list: Comment[]): Promise<void>;
   highlight(names: string[]): void;
@@ -125,7 +126,7 @@ function rectText(n: { x: number; y: number; width: number; height: number }): s
 }
 
 function assertEditable(n: CanvasNode, doing: string): void {
-  if (n.type === "file" && n.protected) throw new OpError(`“${displayName(n.id)}” is protected: the user keeps it as it is, so you cannot ${doing} it. Read it freely; put new work in a new block beside it.`);
+  if (n.type === "file" && n.protected) throw new OpError(`“${blockLabel(n.id, n)}” is protected: the user keeps it as it is, so you cannot ${doing} it. Read it freely; put new work in a new block beside it.`);
 }
 
 /** The block a file argument names: `tea-notes.md`, `tea-notes`, `./tea-notes.md` or the file's full path. */
@@ -189,7 +190,7 @@ export async function runCommand(host: CommandHost, caller: Caller, req: Command
           throw new OpError(
             parsed || !/\./.test(ref)
               ? `There is no block file “${ref}” in the canvas folder yet. Write the file first (at the top level of the folder), then run think add.`
-              : `“${ref}” is not a block file: names are lowercase letters, digits and hyphens with .md, .mmd, .html or an image extension (like tea-notes.md).`,
+              : `“${ref}” is not a block file: names are lowercase letters, digits and hyphens with .md, .mmd, .html, .pdf or an image extension (like tea-notes.md).`,
           );
         }
       } else node = findNode(view, blockRef(a[0]));
@@ -202,7 +203,7 @@ export async function runCommand(host: CommandHost, caller: Caller, req: Command
       if (hasPlace || o.size) {
         assertEditable(node, "move or resize");
         const locked = node.type === "group" && hasPlace ? frameBlocks(view, node.id).find((m) => m.protected) : undefined;
-        if (locked) throw new OpError(`The frame “${frameTitle(node as GroupNode)}” holds the protected block “${displayName(locked.id)}”, which only the user may move. Resize the frame instead, or ask the user.`);
+        if (locked) throw new OpError(`The frame “${frameTitle(node as GroupNode)}” holds the protected block “${blockLabel(locked.id, locked)}”, which only the user may move. Resize the frame instead, or ask the user.`);
         const r = placeNode(view, node, o, grid, host.blockType(node.id));
         await host.setLayout(r.canvas, r.moved);
         const now = r.canvas.nodes.find((n) => n.id === node.id)!;
@@ -211,24 +212,26 @@ export async function runCommand(host: CommandHost, caller: Caller, req: Command
           return `Moved the frame “${frameTitle(node)}” to ${rectText(now)}${carried ? ` with its ${carried} ${carried === 1 ? "block" : "blocks"}` : ""}.`;
         }
         const taken = r.sideTaken && o.near ? ` — the spot ${o.side === "right" || o.side === "left" ? `${o.side} of` : o.side} ${nodeTitle(o.near)} was taken, so it went to the nearest free spot next to it` : where(o);
-        return `${req.op === "add" ? "Added" : "Moved"} “${displayName(node.id)}” ${req.op === "add" ? "at" : "to"} ${rectText(now)}${taken}.`;
+        return `${req.op === "add" ? "Added" : "Moved"} ${nodeTitle(node)} ${req.op === "add" ? "at" : "to"} ${rectText(now)}${taken}.`;
       }
       host.highlight([node.id]);
-      return `“${displayName(node.id)}” is on the canvas at ${rectText(node)}, where think put it when its file appeared. To choose the place: --near, --at or --in (or think move later).`;
+      return `${nodeTitle(node)} is on the canvas at ${rectText(node)}, where think put it when its file appeared. To choose the place: --near, --at or --in (or think move later).`;
     }
 
     case "link": {
-      const usage = `think link <from> <to> [--label "…"] [--style solid|dashed|dotted] [--arrow end|both|none]`;
+      const usage = `think link <from> <to> [--label "…"] [--style solid|dashed|dotted] [--arrow end|both|none] [--from-side top|right|bottom|left] [--to-side top|right|bottom|left]`;
       if (a.length !== 2) throw new OpError(`Link which two? ${usage}`);
       const from = findNode(view, blockRef(a[0]));
       const to = findNode(view, blockRef(a[1]));
       const style = opt(req, "style");
       const arrow = opt(req, "arrow");
       if (arrow && !["end", "both", "none"].includes(arrow)) throw new OpError("--arrow is end (the default), both or none.");
+      const fromSide = opt(req, "from-side");
+      const toSide = opt(req, "to-side");
       const label = req.opts.label === true ? "" : opt(req, "label");
-      const r = linkNodes(view, from, to, { label, style: style as EdgeStyle | undefined, arrow: arrow as Arrow | undefined });
+      const r = linkNodes(view, from, to, { label, style: style as EdgeStyle | undefined, arrow: arrow as Arrow | undefined, fromSide: fromSide as Side | undefined, toSide: toSide as Side | undefined });
       await host.setLayout(r.canvas, [from.id, to.id]);
-      const bits = [r.edge.label ? `“${r.edge.label}”` : "", r.edge.style ?? "", r.edge.fromEnd === "arrow" ? "arrows both ends" : r.edge.toEnd === "none" ? "no arrow" : ""].filter(Boolean);
+      const bits = [r.edge.label ? `“${r.edge.label}”` : "", r.edge.style ?? "", r.edge.fromEnd === "arrow" ? "arrows both ends" : r.edge.toEnd === "none" ? "no arrow" : "", r.edge.fromSide ? `from ${r.edge.fromSide}` : "", r.edge.toSide ? `to ${r.edge.toSide}` : ""].filter(Boolean);
       return `${r.created ? "Linked" : "Updated the link"} ${nodeTitle(from)} → ${nodeTitle(to)}${bits.length ? ` (${bits.join(", ")})` : ""}.`;
     }
 
@@ -263,14 +266,16 @@ export async function runCommand(host: CommandHost, caller: Caller, req: Command
     }
 
     case "rename": {
-      if (a.length !== 2) throw new OpError("think rename <block> <new-name>");
-      const node = findNode(view, blockRef(a[0]), "block");
+      if (a.length !== 2) throw new OpError(`think rename <block> <new-name | "Title">`);
+      const node = findNode(view, blockRef(a[0]), "block") as FileNode;
       assertEditable(node, "rename");
       const parsed = parseBlockFile(a[1].trim());
-      const to = parsed ? parsed.name : a[1].trim();
+      const to = parsed ? parsed.name : a[1];
       if (parsed && parsed.type !== host.blockType(node.id)) throw new OpError(`Renaming keeps the file type — give the new name without an extension (${to}).`);
-      await host.rename(node.id, to);
-      return `Renamed “${displayName(node.id)}” to ${to}: its file, place, links and comments followed.`;
+      const r = await host.rename(node.id, to);
+      const now = `“${blockLabel(r.name, r)}”`;
+      if (r.name === node.id) return `${nodeTitle(node)} is now called ${now}; its file is still ${node.file}.`;
+      return `Renamed ${nodeTitle(node)} to ${now}, file ${r.name}.${node.file.slice(node.file.lastIndexOf(".") + 1)}: its place, links, comments and the [[links]] to it in Markdown blocks followed.`;
     }
 
     case "remove": {
@@ -281,7 +286,7 @@ export async function runCommand(host: CommandHost, caller: Caller, req: Command
         assertEditable(n, "remove");
       }
       await host.remove(nodes.map((n) => n.id));
-      return `Removed ${nodes.map((n) => `“${displayName(n.id)}”`).join(", ")} (file${nodes.length === 1 ? "" : "s"} and links). History keeps ${nodes.length === 1 ? "it" : "them"}.`;
+      return `Removed ${nodes.map(nodeTitle).join(", ")} (file${nodes.length === 1 ? "" : "s"} and links). History keeps ${nodes.length === 1 ? "it" : "them"}.`;
     }
 
     case "view": {

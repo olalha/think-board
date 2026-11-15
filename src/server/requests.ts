@@ -1,7 +1,8 @@
 // A folder that carries requests from the `think` command to the server. The
 // command writes req-<id>.json (a temp file, then a rename, so it appears
 // whole); the server answers in res-<id>.txt: the first line "ok" or "error",
-// then the message for the caller. The command waits for the answer.
+// then the message for the caller. The command waits for the answer. A third
+// status, "pending", says "not yet — ask again" (`think ask` after its wait).
 //
 // Two kinds exist:
 //   ROOT/guests/          agents on the machine (outside agents)
@@ -15,7 +16,7 @@ import path from "node:path";
 import chokidar, { type FSWatcher } from "chokidar";
 import { errorMessage, type Logger } from "./util.js";
 
-export type RequestHandler = (req: unknown) => Promise<{ ok: boolean; message: string }>;
+export type RequestHandler = (req: unknown) => Promise<{ ok: boolean; message: string; pending?: boolean }>;
 
 const REQ_RE = /^req-[\w.-]+\.json$/;
 
@@ -55,6 +56,7 @@ export class RequestDir {
   private async handle(file: string): Promise<void> {
     const id = path.basename(file).replace(/^req-/, "").replace(/\.json$/, "");
     let ok = false;
+    let pending = false;
     let message = "";
     try {
       const text = await fs.readFile(file, "utf8");
@@ -65,14 +67,16 @@ export class RequestDir {
       } catch {
         throw new Error("That request is not valid JSON (is the think command up to date?).");
       }
-      ({ ok, message } = await this.handler(req));
+      const r = await this.handler(req);
+      ({ ok, message } = r);
+      pending = !!r.pending;
     } catch (err) {
       await fs.rm(file, { force: true }).catch(() => {});
       message = errorMessage(err);
     }
     const res = path.join(this.dir, `res-${id}.txt`);
     try {
-      await fs.writeFile(`${res}.tmp`, `${ok ? "ok" : "error"}\n${message}\n`);
+      await fs.writeFile(`${res}.tmp`, `${pending ? "pending" : ok ? "ok" : "error"}\n${message}\n`);
       await fs.rename(`${res}.tmp`, res);
     } catch (err) {
       this.log.warn("could not answer a think request", { dir: this.dir, error: errorMessage(err) });

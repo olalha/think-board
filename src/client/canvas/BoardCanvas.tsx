@@ -17,6 +17,7 @@ import {
   useReactFlow,
   ViewportPortal,
   type Connection,
+  type FinalConnectionState,
   type Edge,
   type Node,
   type NodeChange,
@@ -27,6 +28,7 @@ import {
   ArrowLeftRight,
   BoxSelect,
   Code2,
+  ClipboardCopy,
   Copy,
   Crosshair,
   Download,
@@ -47,10 +49,10 @@ import {
 } from "lucide-react";
 import type { CanvasNode, EdgeStyle, Side } from "../../shared/canvas";
 import { edgeEnds, groupMembers } from "../../shared/canvas";
-import { displayName } from "../../shared/blocks";
+import { blockLabel, isTextType } from "../../shared/blocks";
 import { PAGES } from "../../shared/drawing";
 import { act, layout } from "../lib/project";
-import { modeOf, previewAll, setChatOpen, setMode, useBoard } from "../lib/store";
+import { labelOf, modeOf, previewAll, setChatOpen, setMode, useBoard } from "../lib/store";
 import { loadLocal, saveLocal, useSettings } from "../lib/settings";
 import { toast } from "../lib/toasts";
 import { Menu, type MenuEntry } from "../components/Menu";
@@ -61,6 +63,7 @@ import { cameraBack, cameraForward, resetCamera } from "./camera";
 import {
   createBlock,
   createImage,
+  isBlockFile,
   createSketch,
   deleteBlocks,
   deleteEdges,
@@ -73,6 +76,7 @@ import {
   setFlowInstance,
   startDrawing,
   stopDrawing,
+  toggleZoomBlock,
   zoomToBlock,
 } from "./actions";
 import { useCanvasUi } from "./ui-state";
@@ -80,7 +84,7 @@ import { ZoomBar } from "./ZoomBar";
 import { isMac, modKey } from "../lib/keys";
 import { redo, undo } from "./undo";
 import { isPhone, PHONE, TOUCH, useMedia } from "../lib/device";
-import { clipFromPaste, copySelection, duplicateSelection, pasteClip, pasteText } from "./clipboard";
+import { clipFromPaste, copyBlockContent, copySelection, duplicateSelection, pasteClip, pasteText } from "./clipboard";
 
 const nodeTypes = { block: BlockNode, group: GroupFrame };
 const edgeTypes = { block: BlockEdge };
@@ -237,9 +241,11 @@ export function BoardCanvas() {
         markerStart: fromEnd === "arrow" ? marker : undefined,
         markerEnd: toEnd === "arrow" ? marker : undefined,
         selected,
+        // Only the selected edge can be dragged by its ends, so on touch screens the rest pans.
+        reconnectable: selected && !locked,
       } satisfies Edge;
     });
-  }, [canvas.edges, nodeById, selectedEdges]);
+  }, [canvas.edges, nodeById, selectedEdges, locked]);
 
   // ---- local changes → server ops ----------------------------------------------
   const moveTimer = useRef<number | null>(null);
@@ -359,6 +365,65 @@ export function BoardCanvas() {
     ]);
   }, []);
 
+  // Reattach one end of an arrow to a block side. Drops that change nothing, or
+  // would join a block to itself, are ignored.
+  const reattach = useCallback(
+    (edgeId: string, end: "source" | "target", nodeId: string, side: Side) => {
+      const e = useBoard.getState().canvas.edges.find((x) => x.id === edgeId);
+      if (!e) return;
+      const other = end === "source" ? e.toNode : e.fromNode;
+      if (nodeId === other) return;
+      const nodes = rf.getNodes();
+      const [autoFrom, autoTo] = autoSides(nodes.find((n) => n.id === e.fromNode), nodes.find((n) => n.id === e.toNode));
+      const curNode = end === "source" ? e.fromNode : e.toNode;
+      const curSide = end === "source" ? (e.fromSide ?? autoFrom) : (e.toSide ?? autoTo);
+      if (nodeId === curNode && side === curSide) return;
+      const patch = end === "source" ? { fromNode: nodeId, fromSide: side } : { toNode: nodeId, toSide: side };
+      void layout([{ op: "edge.update", id: edgeId, patch }], { undoable: true, label: "Move arrow end" });
+    },
+    [rf],
+  );
+  const reconnected = useRef(false);
+  const onReconnectStart = useCallback(() => {
+    reconnected.current = false;
+  }, []);
+  const onReconnect = useCallback(
+    (old: Edge, c: Connection) => {
+      reconnected.current = true;
+      if (useBoard.getState().lock.locked) return;
+      const end = c.source !== old.source || c.sourceHandle !== old.sourceHandle ? "source" : "target";
+      const nodeId = end === "source" ? c.source : c.target;
+      const side = (end === "source" ? c.sourceHandle : c.targetHandle) as Side | null;
+      if (nodeId && side) reattach(old.id, end, nodeId, side);
+    },
+    [reattach],
+  );
+  // Dropped on a block's body rather than on a handle: attach to its nearest side.
+  // Dropped on empty canvas: nothing changes.
+  const onReconnectEnd = useCallback(
+    (ev: MouseEvent | TouchEvent, edge: Edge, handleType: "source" | "target", state: FinalConnectionState) => {
+      if (reconnected.current || state.isValid || useBoard.getState().lock.locked) return;
+      const pt = "changedTouches" in ev ? ev.changedTouches[0] : ev;
+      if (!pt) return;
+      // React Flow names a node only near one of its handles; otherwise find the block under the pointer.
+      const under = document.elementsFromPoint(pt.clientX, pt.clientY).find((el) => el.closest(".react-flow__node-block"));
+      const toId = state.toNode?.id ?? under?.closest(".react-flow__node-block")?.getAttribute("data-id");
+      if (!toId) return;
+      const internal = rf.getInternalNode(toId);
+      if (!internal) return;
+      const p = rf.screenToFlowPosition({ x: pt.clientX, y: pt.clientY });
+      const w = internal.measured.width ?? 1;
+      const h = internal.measured.height ?? 1;
+      const x = (p.x - internal.internals.positionAbsolute.x) / w;
+      const y = (p.y - internal.internals.positionAbsolute.y) / h;
+      const dist: [Side, number][] = [["left", x], ["right", 1 - x], ["top", y], ["bottom", 1 - y]];
+      dist.sort((a, b) => a[1] - b[1]);
+      // `handleType` is the end that stays put; the dragged end is the other one.
+      reattach(edge.id, handleType === "source" ? "target" : "source", toId, dist[0][0]);
+    },
+    [rf, reattach],
+  );
+
   // ---- pointer tracking (for "new block here" and paste) ----------------------
   const onPaneMouseMove = useCallback(
     (e: React.MouseEvent) => {
@@ -375,14 +440,14 @@ export function BoardCanvas() {
     if (menu.kind === "image" && menu.replace) {
       const name = menu.replace;
       return [
-        { kind: "heading", label: `Replace ${displayName(name)} with` },
+        { kind: "heading", label: `Replace ${labelOf(name)} with` },
         { label: "An image…", icon: <ImageIcon size={15} />, disabled: locked, onSelect: () => pickImage((f) => void replaceImage(name, { kind: "photo", file: f })) },
         { kind: "swatches", label: "A blank page", icon: <PenLine size={15} />, disabled: locked || isPhone(), colors: PAGES, onPick: (c) => void replaceImage(name, { kind: "color", color: c }) },
       ];
     }
     if (menu.kind === "image") {
       return [
-        { label: "Upload an image…", icon: <ImageIcon size={15} />, hint: "I", disabled: locked, onSelect: () => pickImage((f) => void createImage(f)) },
+        { label: "Upload an image or PDF…", icon: <ImageIcon size={15} />, hint: "I", disabled: locked, onSelect: () => pickImage((f) => void createImage(f), { pdf: true }) },
         { kind: "swatches", label: "Blank page", icon: <PenLine size={15} />, hint: "S", disabled: locked, colors: PAGES, onPick: (c) => void createSketch(undefined, c) },
       ];
     }
@@ -393,7 +458,7 @@ export function BoardCanvas() {
         { label: "Markdown", icon: <FileText size={15} />, hint: "M", disabled: locked, onSelect: () => void createBlock("markdown", at) },
         { label: "Mermaid diagram", icon: <Workflow size={15} />, hint: "D", disabled: locked, onSelect: () => void createBlock("mermaid", at) },
         { label: "HTML", icon: <Globe size={15} />, hint: "H", disabled: locked, onSelect: () => void createBlock("html", at) },
-        { label: "Image…", icon: <ImageIcon size={15} />, hint: "I", disabled: locked, onSelect: () => pickImage((f) => void createImage(f, at)) },
+        { label: "Image or PDF…", icon: <ImageIcon size={15} />, hint: "I", disabled: locked, onSelect: () => pickImage((f) => void createImage(f, at), { pdf: true }) },
         { kind: "swatches", label: "Blank page", icon: <PenLine size={15} />, hint: "S", disabled: locked, colors: PAGES, onPick: (c) => void createSketch(at, c) },
         { label: "Group (frame)", icon: <Frame size={15} />, hint: "G", disabled: locked, onSelect: () => groupSelection([], at) },
         { kind: "sep" },
@@ -414,7 +479,7 @@ export function BoardCanvas() {
       const ghost = tt.snap.ghosts.some((g) => g.node.id === menu.id);
       const rev = ghost ? tt.entry.base : tt.entry.id;
       return [
-        { kind: "heading", label: `${displayName(menu.id)} · ${ghost ? "removed here" : "as it was"}` },
+        { kind: "heading", label: `${labelOf(menu.id)} · ${ghost ? "removed here" : "as it was"}` },
         {
           label: "Restore this block",
           icon: <Undo2 size={15} />,
@@ -442,8 +507,8 @@ export function BoardCanvas() {
       const b = useBoard.getState().blocks[menu.id];
       const lastValid = useBoard.getState().mermaidLastValid[menu.id];
       const isProtected = cnode?.type === "file" && !!cnode.protected;
-      const items: MenuEntry[] = [{ kind: "heading", label: displayName(menu.id) }];
-      if (b && b.type !== "image") {
+      const items: MenuEntry[] = [{ kind: "heading", label: blockLabel(menu.id, cnode?.type === "file" ? cnode : undefined) }];
+      if (b && isTextType(b.type)) {
         const raw = modeOf(menu.id, b.type) === "raw";
         items.push({
           label: raw ? "Show rendered" : "Edit raw",
@@ -472,11 +537,20 @@ export function BoardCanvas() {
         { kind: "sep" },
         { label: "Ask the agent about it", icon: <Bot size={15} />, hint: "A", onSelect: () => askAbout([menu.id]) },
         { label: "Zoom to block", icon: <Crosshair size={15} />, hint: "Z", onSelect: () => zoomToBlock(menu.id) },
+        ...(b && isTextType(b.type)
+          ? [
+              {
+                label: modeOf(menu.id, b.type) === "raw" || b.type !== "markdown" ? "Copy content" : "Copy content (formatted)",
+                icon: <ClipboardCopy size={15} />,
+                onSelect: () => void copyBlockContent(menu.id, modeOf(menu.id, b.type)),
+              },
+            ]
+          : []),
         {
           label: "Copy name",
           icon: <Copy size={15} />,
           onSelect: () => {
-            void navigator.clipboard?.writeText(displayName(menu.id)).then(() => toast.success(`Copied “${displayName(menu.id)}”`));
+            void navigator.clipboard?.writeText(labelOf(menu.id)).then(() => toast.success(`Copied “${labelOf(menu.id)}”`));
           },
         },
         { label: `Download ${b?.file ?? "file"}`, icon: <Download size={15} />, disabled: !b, onSelect: () => downloadBlock(menu.id) },
@@ -489,7 +563,7 @@ export function BoardCanvas() {
     if (!e) return [];
     const { fromEnd, toEnd } = edgeEnds(e);
     return [
-      { kind: "heading", label: `${displayName(e.fromNode)} → ${displayName(e.toNode)}` },
+      { kind: "heading", label: `${labelOf(e.fromNode)} → ${labelOf(e.toNode)}` },
       {
         label: "Arrowhead at start",
         checked: fromEnd === "arrow",
@@ -544,6 +618,7 @@ export function BoardCanvas() {
         if (!b) return;
         e.preventDefault();
         if (b.type === "image") return startDrawing(s[0]);
+        if (!isTextType(b.type)) return; // a PDF has no edit mode
         const raw = modeOf(s[0], b.type) === "raw";
         setMode(s[0], raw ? "rendered" : "raw");
         if (!raw) useBoard.setState({ focusRequest: s[0] });
@@ -595,7 +670,7 @@ export function BoardCanvas() {
         case "i":
         case "I":
           e.preventDefault();
-          if (!useBoard.getState().lock.locked) pickImage((f) => void createImage(f));
+          if (!useBoard.getState().lock.locked) pickImage((f) => void createImage(f), { pdf: true });
           break;
         case "f":
         case "F":
@@ -626,7 +701,7 @@ export function BoardCanvas() {
         case "z":
         case "Z": {
           const s = sel();
-          if (s.length === 1) zoomToBlock(s[0]);
+          if (s.length === 1) toggleZoomBlock(s[0]);
           else if (s.length > 1) void rf.fitView({ nodes: s.map((id) => ({ id })), padding: FIT_PADDING, duration: 400 });
           break;
         }
@@ -824,7 +899,7 @@ export function BoardCanvas() {
         void pasteClip(clip);
         return;
       }
-      const file = [...(e.clipboardData?.files ?? [])].find((f) => f.type.startsWith("image/"));
+      const file = [...(e.clipboardData?.files ?? [])].find(isBlockFile);
       if (file) {
         e.preventDefault();
         void createImage(file);
@@ -855,7 +930,7 @@ export function BoardCanvas() {
   };
   const onDrop = (e: React.DragEvent) => {
     setDropping(false);
-    const files = [...e.dataTransfer.files].filter((f) => f.type.startsWith("image/"));
+    const files = [...e.dataTransfer.files].filter(isBlockFile);
     if (!files.length) return;
     e.preventDefault();
     const at = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
@@ -888,6 +963,10 @@ export function BoardCanvas() {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        onReconnectStart={onReconnectStart}
+        onReconnect={onReconnect}
+        onReconnectEnd={onReconnectEnd}
+        reconnectRadius={14}
         onNodeDragStart={onNodeDragStart}
         onNodeDrag={onNodeDrag}
         onNodeDragStop={onNodeDragStop}

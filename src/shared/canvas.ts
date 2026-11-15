@@ -4,7 +4,8 @@
 // labelled frame that blocks sit inside). Extensions beyond the spec, which
 // other JSON Canvas tools simply ignore:
 //   - file nodes: `protected` — the agent may read the block but not change,
-//     move, rename or delete it;
+//     move, rename or delete it; `title` — the block's free-text name, shown
+//     instead of its file name made readable (see blockLabel in blocks.ts);
 //   - edges: `style` — "solid" (default), "dashed" or "dotted";
 //   - top level: `views` — saved viewpoints, as areas of the canvas.
 
@@ -16,6 +17,8 @@ export interface FileNode {
   id: string;
   type: "file";
   file: string;
+  /** Free text shown as the block's name (one line, ≤ 120 characters); none: its file name made readable. */
+  title?: string;
   x: number;
   y: number;
   width: number;
@@ -126,7 +129,7 @@ export function serializeCanvas(canvas: Canvas): string {
       if (n.color !== undefined) out.color = n.color;
       return out;
     }
-    const out: FileNode = { id: n.id, type: "file", file: n.file, x: n.x, y: n.y, width: n.width, height: n.height };
+    const out: FileNode = { id: n.id, type: "file", file: n.file, ...(n.title ? { title: n.title } : {}), x: n.x, y: n.y, width: n.width, height: n.height };
     if (n.color !== undefined) out.color = n.color;
     if (n.protected) out.protected = true;
     return out;

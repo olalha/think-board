@@ -871,6 +871,9 @@ html.presenting .react-flow__background {
 .outline-row svg.type-image {
   color: var(--type-image);
 }
+.outline-row svg.type-pdf {
+  color: var(--type-pdf);
+}
 .outline-row svg {
   flex: none;
 }
@@ -1050,6 +1053,162 @@ html.presenting .react-flow__background {
 }
 .view-row:hover .view-tools {
   opacity: 1;
+}
+
+/* files (the files/ folder) */
+.files {
+  min-height: 100%;
+  border-radius: 10px;
+  outline: 2px dashed transparent;
+  outline-offset: -2px;
+  transition: outline-color 0.12s, background 0.12s;
+}
+.files.drop-over {
+  outline-color: var(--accent);
+  background: var(--accent-soft);
+}
+.files-total {
+  align-self: center;
+  margin-left: auto;
+}
+.file-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.file-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 40px;
+  padding: 2px 4px;
+  border-radius: 8px;
+}
+.file-row:hover {
+  background: var(--hover);
+}
+.file-row.uploading {
+  gap: 8px;
+  padding: 4px 8px;
+  color: var(--text-3);
+}
+.file-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  padding: 4px;
+  border: none;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.file-row.uploading .file-main {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  cursor: default;
+}
+.file-icon {
+  flex: none;
+  color: var(--text-3);
+}
+.file-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.file-name {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.file-meta {
+  color: var(--text-3);
+  font-size: 11.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.file-progress {
+  display: block;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--panel-3);
+  overflow: hidden;
+}
+.file-progress i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.15s;
+}
+.file-tools {
+  display: flex;
+  flex: none;
+  gap: 1px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.file-row:hover .file-tools,
+.file-row:focus-within .file-tools {
+  opacity: 1;
+}
+/* Touch: no hover, so the tools are always there (coarse pointers make them bigger). */
+@media (hover: none) {
+  .file-tools {
+    opacity: 1;
+  }
+}
+a.btn,
+.file-tools a.icon-btn {
+  text-decoration: none;
+}
+.file-preview-img {
+  display: block;
+  max-width: 100%;
+  max-height: calc(var(--app-h, 100dvh) - 220px);
+  margin: 0 auto;
+  object-fit: contain;
+}
+.file-preview-text {
+  margin: 0;
+  max-height: calc(var(--app-h, 100dvh) - 220px);
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre;
+}
+.file-table-wrap {
+  max-height: calc(var(--app-h, 100dvh) - 220px);
+  overflow: auto;
+}
+.file-table {
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.file-table th,
+.file-table td {
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+  white-space: nowrap;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.file-table th {
+  position: sticky;
+  top: 0;
+  background: var(--panel-2);
+  font-weight: 650;
 }
 
 /* readme */

@@ -6,8 +6,8 @@ description: Work on a think canvas (the brainstorming app's boards) — start o
 # Working on a think canvas
 
 think is a self-hosted brainstorming app. A canvas is a folder of block files
-(Markdown, Mermaid, HTML, images) that people see as a board; you work on it
-like the canvas's own agent does, from outside the app.
+(Markdown, Mermaid, HTML, images, PDFs) that people see as a board; you work on
+it like the canvas's own agent does, from outside the app.
 
 1. **Find the canvas:** `think list`, and `think path <canvas>` for its folder.
    To start one: `think new "Name" "what it is for"` (prints the folder and a

@@ -32,7 +32,10 @@ function useThemeAttribute() {
     else root.dataset.theme = theme;
   }, [theme]);
   useEffect(() => {
+    // One setting for all reading text: the raw editor at this size, rendered
+    // blocks and chat replies scaled by the same ratio (13 is the default).
     document.documentElement.style.setProperty("--editor-font-size", `${fontSize}px`);
+    document.documentElement.style.setProperty("--text-scale", String(fontSize / 13));
   }, [fontSize]);
 }
 

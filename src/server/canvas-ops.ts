@@ -4,8 +4,8 @@
 // the same path as every other layout change (reconciled, grid-snapped,
 // written atomically).
 
-import { BLOCK_SIZES, displayName, parseBlockFile, toBlockName, type BlockType } from "../shared/blocks.js";
-import { EDGE_STYLES, groupMembers, type Canvas, type CanvasEdge, type CanvasNode, type CanvasView, type EdgeStyle, type FileNode, type GroupNode } from "../shared/canvas.js";
+import { BLOCK_SIZES, blockLabel, displayName, parseBlockFile, toBlockName, type BlockType } from "../shared/blocks.js";
+import { EDGE_STYLES, SIDES, groupMembers, type Canvas, type CanvasEdge, type CanvasNode, type CanvasView, type EdgeStyle, type FileNode, type GroupNode, type Side } from "../shared/canvas.js";
 import { findFreeSlot, GROUP_MIN, snap, snapSize } from "./canvas-model.js";
 
 /** A refusal or a mistake in a command, told to the caller as it is. */
@@ -36,13 +36,13 @@ export function frameTitle(g: GroupNode): string {
 }
 
 export function nodeTitle(n: CanvasNode): string {
-  return isGroup(n) ? `the frame “${frameTitle(n)}”` : `“${displayName(n.id)}”`;
+  return isGroup(n) ? `the frame “${frameTitle(n)}”` : `“${blockLabel(n.id, n)}”`;
 }
 
 /**
  * Find a block or frame by what an agent would type: its id (`tea-notes`,
- * `grp-drinks`), a block's file name (`tea-notes.md`), a block's display name
- * (`Tea notes`) or a frame's label (`Drinks`), ignoring case.
+ * `grp-drinks`), a block's file name (`tea-notes.md`), a block's title or
+ * display name (`Tea notes`) or a frame's label (`Drinks`), ignoring case.
  */
 export function findNode(canvas: Canvas, ref: string, want: "block" | "frame" | "any" = "any"): CanvasNode {
   const r = ref.trim().replace(/^\.\//, "");
@@ -56,9 +56,11 @@ export function findNode(canvas: Canvas, ref: string, want: "block" | "frame" | 
     if (n) return n;
   }
   const low = r.toLowerCase();
-  const byLabel = pool.filter((n) => (isGroup(n) ? frameTitle(n).toLowerCase() === low : displayName(n.id).toLowerCase() === low || n.id === toBlockName(r)));
+  const byLabel = pool.filter((n) =>
+    isGroup(n) ? frameTitle(n).toLowerCase() === low : n.title?.toLowerCase() === low || displayName(n.id).toLowerCase() === low || n.id === toBlockName(r),
+  );
   if (byLabel.length === 1) return byLabel[0];
-  if (byLabel.length > 1) throw new OpError(`“${r}” matches more than one frame (${byLabel.map((n) => n.id).join(", ")}) — use the id.`);
+  if (byLabel.length > 1) throw new OpError(`“${r}” matches more than one ${byLabel.every(isGroup) ? "frame" : "block or frame"} (${byLabel.map((n) => n.id).join(", ")}) — use the name.`);
   const what = want === "frame" ? "frame" : want === "block" ? "block" : "block or frame";
   throw new OpError(`There is no ${what} “${r}” on the canvas (think read lists them).`);
 }
@@ -260,12 +262,17 @@ export interface LinkOptions {
   label?: string;
   style?: EdgeStyle;
   arrow?: Arrow;
+  fromSide?: Side;
+  toSide?: Side;
 }
 
 /** Connect two nodes (from → to), or update the connection they already have. */
 export function linkNodes(canvas: Canvas, from: CanvasNode, to: CanvasNode, opts: LinkOptions): { canvas: Canvas; edge: CanvasEdge; created: boolean } {
   if (from.id === to.id) throw new OpError("A block cannot be connected to itself.");
   if (opts.style && !EDGE_STYLES.includes(opts.style)) throw new OpError(`--style is solid, dashed or dotted.`);
+  for (const [flag, v] of [["--from-side", opts.fromSide], ["--to-side", opts.toSide]] as const) {
+    if (v !== undefined && !SIDES.includes(v)) throw new OpError(`${flag} is top, right, bottom or left (got “${v}”).`);
+  }
   const apply = (e: CanvasEdge): CanvasEdge => {
     const out = { ...e };
     if (opts.label !== undefined) {
@@ -283,6 +290,8 @@ export function linkNodes(canvas: Canvas, from: CanvasNode, to: CanvasNode, opts
       if (opts.arrow === "none") out.toEnd = "none";
       else delete out.toEnd;
     }
+    if (opts.fromSide) out.fromSide = opts.fromSide;
+    if (opts.toSide) out.toSide = opts.toSide;
     return out;
   };
   const existing = canvas.edges.find((e) => e.fromNode === from.id && e.toNode === to.id);
@@ -347,6 +356,8 @@ export function removeView(canvas: Canvas, ref: string): { canvas: Canvas; view:
 
 export interface OutlineBlock {
   name: string;
+  /** Its free-text title, when it has one (else it shows as the name made readable). */
+  title?: string;
   file: string;
   type: BlockType;
   x: number;
@@ -376,6 +387,7 @@ export function outline(canvas: Canvas, meta: { name: string; slug: string; grid
   });
   const blocks = canvas.nodes.filter(isFile).map((n) => ({
     name: n.id,
+    ...(n.title ? { title: n.title } : {}),
     file: n.file,
     type: types.get(n.id) ?? "markdown",
     x: n.x,
@@ -400,10 +412,10 @@ export function outlineText(o: Outline): string {
   const frameLabel = new Map(o.frames.map((f) => [f.id, f.label]));
   const pad = (s: string, w: number) => (s.length >= w ? s + " " : s + " ".repeat(w - s.length));
   if (o.blocks.length) {
-    lines.push("", "blocks — name, type, x,y, width×height:");
+    lines.push("", "blocks — name, type, x,y, width×height, “title”:");
     const w = Math.min(32, Math.max(...o.blocks.map((b) => b.name.length)) + 2);
     for (const b of [...o.blocks].sort((a, c) => a.y - c.y || a.x - c.x)) {
-      const extra = [b.protected ? "protected" : "", b.frames.length ? `in ${b.frames.map((f) => `“${frameLabel.get(f)}”`).join(", ")}` : ""].filter(Boolean).join(" · ");
+      const extra = [b.title ? `“${b.title}”` : "", b.protected ? "protected" : "", b.frames.length ? `in ${b.frames.map((f) => `“${frameLabel.get(f)}”`).join(", ")}` : ""].filter(Boolean).join(" · ");
       lines.push(`  ${pad(b.name, w)}${pad(b.type, 10)}${pad(`${b.x},${b.y}`, 12)}${pad(`${b.width}×${b.height}`, 10)}${extra}`.trimEnd());
     }
   } else lines.push("", "no blocks yet");

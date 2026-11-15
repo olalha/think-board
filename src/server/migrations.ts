@@ -58,6 +58,20 @@ const MIGRATIONS: Migration[] = [
       return [THINK_FILE];
     },
   },
+  {
+    // 3 → 4: PDF blocks (.pdf at the top level) and block titles (a `title` on a
+    // node in canvas.json). Nothing to convert — the new number stops an older
+    // think from dropping a PDF block's node or a block's title when it writes
+    // canvas.json.
+    to: 4,
+    async run(ctx) {
+      const file = path.join(ctx.dir, THINK_FILE);
+      const current = await readJson<Record<string, unknown> | null>(file, null);
+      if (!current) return [];
+      await writeAtomic(file, serializeThinkFile({ ...(current as unknown as ThinkFile), format: 4 }), ctx.thinkDir);
+      return [THINK_FILE];
+    },
+  },
 ];
 
 if (MIGRATIONS.at(-1)?.to !== CANVAS_FORMAT) throw new Error("migrations.ts: the last migration must reach CANVAS_FORMAT");

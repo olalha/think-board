@@ -4,7 +4,11 @@
 // stem and must be unique across extensions; its type follows from the
 // extension. Anything else in the folder is ignored by the canvas.
 
-export type BlockType = "markdown" | "mermaid" | "html" | "image";
+export type BlockType = "markdown" | "mermaid" | "html" | "image" | "pdf";
+/** Block types whose file is binary: shown, never edited as text. */
+export type BinaryType = "image" | "pdf";
+/** Block types whose file is text, edited in the block. */
+export type TextType = Exclude<BlockType, BinaryType>;
 
 export const EXTENSION_TYPES: Record<string, BlockType> = {
   md: "markdown",
@@ -15,10 +19,11 @@ export const EXTENSION_TYPES: Record<string, BlockType> = {
   jpeg: "image",
   webp: "image",
   gif: "image",
+  pdf: "pdf",
 };
 
 /** The extension a newly created block of each text type gets. */
-export const TYPE_EXTENSION: Record<Exclude<BlockType, "image">, string> = {
+export const TYPE_EXTENSION: Record<TextType, string> = {
   markdown: "md",
   mermaid: "mmd",
   html: "html",
@@ -31,7 +36,7 @@ export const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "webp", "gif"] as const;
  * Names must be unique; the lower index keeps the name and the other file is
  * reported as a conflict rather than silently shown.
  */
-export const EXTENSION_PRECEDENCE = ["md", "mmd", "html", "png", "jpg", "jpeg", "webp", "gif"];
+export const EXTENSION_PRECEDENCE = ["md", "mmd", "html", "png", "jpg", "jpeg", "webp", "gif", "pdf"];
 
 /** Lowercase letters, digits and inner hyphens: `harry`, `harry-2`. */
 export const NAME_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -50,8 +55,8 @@ export function parseBlockFile(file: string): { name: string; ext: string; type:
   return { name: m[1], ext: m[2], type };
 }
 
-export function isTextType(type: BlockType): type is Exclude<BlockType, "image"> {
-  return type !== "image";
+export function isTextType(type: BlockType): type is TextType {
+  return type !== "image" && type !== "pdf";
 }
 
 /**
@@ -69,6 +74,44 @@ export function displayName(name: string): string {
   const words = name.split("-").map((w) => MIXED_CASE[w] ?? (ACRONYMS.has(w) ? w.toUpperCase() : w));
   const spaced = words.join(" ");
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
+/** The longest a block's title may be, in characters. */
+export const MAX_TITLE = 120;
+
+/**
+ * A block title as stored: one line (line breaks become spaces), trimmed, at
+ * most MAX_TITLE characters. Undefined when nothing is left.
+ */
+export function cleanTitle(input: unknown): string | undefined {
+  if (typeof input !== "string") return undefined;
+  const one = input.replace(/\s*[\r\n\u2028\u2029]+\s*/g, " ").replace(/\t/g, " ").trim();
+  if (!one) return undefined;
+  const chars = Array.from(one);
+  return chars.length > MAX_TITLE ? chars.slice(0, MAX_TITLE).join("").trimEnd() : one;
+}
+
+/**
+ * What people see as a block's name: its free-text title when it has one
+ * (stored on its canvas node), else the name made readable (`displayName`).
+ * Server and client both label blocks with this.
+ */
+export function blockLabel(name: string, node?: { title?: string } | null): string {
+  return node?.title || displayName(name);
+}
+
+/**
+ * What renaming a block to `text` means: the file name it gets
+ * (`toBlockName(text)`, or `current` when nothing usable is left, e.g. only
+ * emoji) and the title it keeps — none when `text` is just the name (`tea-notes`)
+ * or the name made readable (`Tea notes`). Null when `text` is empty.
+ */
+export function renameTarget(text: string, current: string): { name: string; title?: string } | null {
+  const title = cleanTitle(text);
+  if (!title) return null;
+  if (isValidName(title)) return { name: title };
+  const name = toBlockName(title) || current;
+  return title === displayName(name) ? { name } : { name, title };
 }
 
 /**
@@ -94,6 +137,17 @@ export const IMAGE_MIME: Record<string, string> = {
   gif: "image/gif",
 };
 
+export const PDF_MIME = "application/pdf";
+
+/** The largest PDF a user can upload (the server's request limit, 32 MB, sits above it). */
+export const MAX_PDF_BYTES = 25 * 1024 * 1024;
+
+/** True when the bytes start like a PDF (`%PDF-`, allowing a little junk before it as readers do). */
+export function looksLikePdf(data: Uint8Array): boolean {
+  const head = String.fromCharCode(...data.subarray(0, 1024));
+  return head.includes("%PDF-");
+}
+
 export function extensionForMime(mime: string): string | null {
   switch (mime) {
     case "image/png":
@@ -115,10 +169,11 @@ export const BLOCK_SIZES: Record<BlockType, { width: number; height: number; min
   mermaid: { width: 420, height: 300, minWidth: 180, minHeight: 120 },
   html: { width: 480, height: 360, minWidth: 200, minHeight: 140 },
   image: { width: 320, height: 240, minWidth: 80, minHeight: 80 },
+  pdf: { width: 420, height: 560, minWidth: 160, minHeight: 160 },
 };
 
 /** Content a block starts with when the user creates it from the canvas. */
-export function initialContent(type: Exclude<BlockType, "image">, name: string): string {
+export function initialContent(type: TextType, name: string): string {
   const title = displayName(name);
   switch (type) {
     case "markdown":

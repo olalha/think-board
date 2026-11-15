@@ -8,13 +8,13 @@
 // custom types (Safari between tabs) fall back to a copy kept in localStorage,
 // recognised by its text.
 import { groupMembers, type CanvasEdge, type CanvasNode, type GroupNode } from "../../shared/canvas";
-import { displayName, isTextType, toBlockName } from "../../shared/blocks";
+import { displayName, initialContent, isTextType, toBlockName } from "../../shared/blocks";
 import type { PasteBlock } from "../../shared/protocol";
 import { act, currentSlug, layout } from "../lib/project";
 import { loadLocal, saveLocal } from "../lib/settings";
-import { useBoard } from "../lib/store";
+import { labelOf, useBoard } from "../lib/store";
 import { toast } from "../lib/toasts";
-import { deleteBlocks, flow, placementPoint, select } from "./actions";
+import { deleteBlocks, flow, placementPoint, recentlyCreated, recordEdit, select } from "./actions";
 import { record } from "./undo";
 
 const MIME = "application/x-think-blocks";
@@ -67,7 +67,7 @@ export function selectionClip(): Clip | null {
       texts.push(b.content ?? "");
     } else {
       out.push({ ...base, image: { canvas: slug, file: b.file } });
-      texts.push(`[image: ${displayName(n.id)}]`);
+      texts.push(`[${b.type === "pdf" ? "PDF" : "image"}: ${labelOf(n.id)}]`);
     }
   }
   const groups = nodes.filter((n): n is GroupNode => n.type === "group");
@@ -91,7 +91,7 @@ export function copySelection(e: ClipboardEvent, cut: boolean): boolean {
   }
   saveLocal(STORE_KEY, clip);
   const n = clip.blocks.length + clip.groups.length;
-  const what = n === 1 ? displayName(clip.blocks[0]?.from ?? clip.groups[0]?.label ?? "frame") : `${n} items`;
+  const what = n === 1 ? (clip.blocks[0] ? labelOf(clip.blocks[0].from) : displayName(clip.groups[0]?.label ?? "frame")) : `${n} items`;
   if (cut) {
     deleteBlocks(clip.blocks.map((b) => b.from), { skipConfirm: true });
     const groups = clip.groups.map((g) => ({ op: "group.delete" as const, id: g.id }));
@@ -149,7 +149,7 @@ export async function pasteClip(clip: Clip, opts: { offset?: { x: number; y: num
   const names = Object.values(r.names);
   const groupIds = Object.values(r.groups);
   select([...names, ...groupIds]);
-  recordPaste(names, groupIds, opts.label ?? `Paste ${names.length + groupIds.length === 1 ? displayName(names[0] ?? "frame") : `${names.length + groupIds.length} items`}`);
+  recordPaste(names, groupIds, opts.label ?? `Paste ${names.length + groupIds.length === 1 ? (names[0] ? labelOf(names[0]) : "frame") : `${names.length + groupIds.length} items`}`);
   const skipped = clip.blocks.length - names.length;
   if (skipped > 0) toast.info(`${skipped} of the copied blocks no longer exist${skipped === 1 ? "s" : ""} and ${skipped === 1 ? "was" : "were"} left out.`);
 }
@@ -163,8 +163,65 @@ export function duplicateSelection(): void {
 }
 
 /** Text pasted onto the canvas becomes a Markdown block, named after its first line. */
+/**
+ * Text pasted onto the canvas while a fresh block waits for it — one just
+ * created (its editor may not have focus yet) or one selected and still
+ * untouched — goes into that block instead of becoming another one.
+ */
+async function freshTarget(): Promise<string | null> {
+  const isFresh = (name: string | null): name is string => {
+    const b = name ? useBoard.getState().blocks[name] : undefined;
+    return !!b && isTextType(b.type) && b.content !== undefined && b.content.trim() === initialContent(b.type, b.name).trim();
+  };
+  const ui = useBoard.getState();
+  const selected = flow()?.getNodes().filter((n) => n.selected).map((n) => n.id) ?? [];
+  if (selected.length === 1 && isFresh(selected[0])) return selected[0];
+  if (isFresh(ui.focusRequest)) return ui.focusRequest;
+  const pending = recentlyCreated(3000);
+  if (selected.length === 0 && pending) {
+    const name = await pending;
+    if (name && (await contentLoaded(name)) && isFresh(name)) return name;
+  }
+  return null;
+}
+
+/** Resolves once the block's text has reached this tab (false after `ms`). */
+function contentLoaded(name: string, ms = 2000): Promise<boolean> {
+  const ready = () => useBoard.getState().blocks[name]?.content !== undefined;
+  if (ready()) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const stop = useBoard.subscribe(() => {
+      if (!ready()) return;
+      stop();
+      clearTimeout(t);
+      resolve(true);
+    });
+    const t = setTimeout(() => {
+      stop();
+      resolve(ready());
+    }, ms);
+  });
+}
+
+async function fillBlock(name: string, text: string): Promise<boolean> {
+  const b = useBoard.getState().blocks[name];
+  if (!b || b.content === undefined) return false;
+  const before = b.content;
+  const head = before.trim();
+  const body = text.endsWith("\n") ? text : `${text}\n`;
+  // A pasted text that brings its own heading replaces the placeholder one.
+  const after = /^#\s/.test(text.trimStart()) || b.type !== "markdown" ? body : `${head}\n\n${body}`;
+  if ((await act({ type: "user.edit", name, content: after })) === null) return false;
+  const blocks = useBoard.getState().blocks;
+  if (blocks[name]) useBoard.setState({ blocks: { ...blocks, [name]: { ...blocks[name], content: after } } });
+  recordEdit(name, before, after);
+  return true;
+}
+
 export async function pasteText(text: string): Promise<void> {
   if (locked() || !text.trim()) return;
+  const target = await freshTarget();
+  if (target && (await fillBlock(target, text))) return;
   const first = text.trim().split("\n")[0].replace(/^#+\s*/, "").slice(0, 40);
   const at = placementPoint();
   const clip: Clip = { v: 1, canvas: currentSlug() ?? "", groups: [], edges: [], text, blocks: [{ from: toBlockName(first) || "note", type: "markdown", content: text.endsWith("\n") ? text : `${text}\n`, x: at.x, y: at.y, width: 360, height: 260 }] };
@@ -200,4 +257,43 @@ function recordPaste(names: string[], groupIds: string[], label: string): void {
       return "ok";
     },
   });
+}
+
+/**
+ * A text block's content for another app. Raw view: its source, Markdown
+ * symbols and all. A rendered Markdown block: formatted text (HTML, with plain
+ * text beside it for apps that take no formatting). Diagrams and HTML blocks
+ * copy their source either way.
+ */
+export async function copyBlockContent(name: string, mode: "raw" | "rendered"): Promise<void> {
+  const b = useBoard.getState().blocks[name];
+  if (!b || !isTextType(b.type) || b.content === undefined) return;
+  const label = labelOf(name);
+  try {
+    if (mode === "rendered" && b.type === "markdown" && typeof ClipboardItem !== "undefined") {
+      const { html, plain } = await renderForClipboard(b.content);
+      await navigator.clipboard.write([
+        new ClipboardItem({ "text/html": new Blob([html], { type: "text/html" }), "text/plain": new Blob([plain], { type: "text/plain" }) }),
+      ]);
+      toast.success(`Copied ${label} as formatted text`);
+    } else {
+      await navigator.clipboard.writeText(b.content);
+      toast.success(`Copied ${label}${b.type === "markdown" ? " as Markdown" : ""}`);
+    }
+  } catch {
+    toast.error("Copying needs clipboard access in this browser.");
+  }
+}
+
+/** The block's Markdown as the board renders it: HTML, and its text as laid out (line breaks kept). */
+async function renderForClipboard(source: string): Promise<{ html: string; plain: string }> {
+  const [{ renderToStaticMarkup }, { createElement }, { MarkdownView }] = await Promise.all([import("react-dom/server"), import("react"), import("../blocks/renderers")]);
+  const html = renderToStaticMarkup(createElement(MarkdownView, { source }));
+  const box = document.createElement("div");
+  box.style.cssText = "position:fixed;left:-10000px;top:0;width:600px;white-space:normal";
+  box.innerHTML = html;
+  document.body.appendChild(box);
+  const plain = box.innerText;
+  box.remove();
+  return { html, plain };
 }

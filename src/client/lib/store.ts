@@ -3,6 +3,7 @@
 // (applyServerMessage) so the protocol stays easy to extend.
 import { create } from "zustand";
 import type { Canvas } from "../../shared/canvas";
+import { blockLabel } from "../../shared/blocks";
 import type {
   AgentCommand,
   AgentStatus,
@@ -17,6 +18,7 @@ import type {
   GuestInfo,
   LockState,
   ProviderInfo,
+  ReferenceFile,
   ServerMessage,
   ValidationReport,
 } from "../../shared/protocol";
@@ -77,6 +79,8 @@ export interface BoardState {
   /** Bumped whenever History gains a point; an open History list reloads. */
   historyVersion: number;
   comments: Comment[];
+  /** The canvas's files/ folder (reference material that is not a block). */
+  refFiles: ReferenceFile[];
   /** comments.json is broken on disk (the comments shown are the last good ones). */
   commentsError: string | null;
   chatOpen: boolean;
@@ -121,6 +125,7 @@ const empty = (): Omit<BoardState, "slug" | "chatOpen" | "modes" | "wraps" | "gu
   saveState: {},
   historyVersion: 0,
   comments: [],
+  refFiles: [],
   commentsError: null,
   chatUnread: false,
   loginOutput: "",
@@ -148,6 +153,23 @@ export function resetBoard(slug: string): void {
 }
 
 /** The reply drafted in an outside agent's tab ("" forgets it). */
+/** A block's title, from its canvas node (undefined when it has none). */
+export function titleIn(canvas: Canvas, name: string): string | undefined {
+  const n = canvas.nodes.find((x) => x.id === name);
+  return n?.type === "file" ? n.title : undefined;
+}
+
+/** What people see as a block's name right now: its title, else its name made readable. */
+export function labelOf(name: string): string {
+  return blockLabel(name, { title: titleIn(useBoard.getState().canvas, name) });
+}
+
+/** The label of a block, kept current (titles live on the canvas, which changes often). */
+export function useBlockLabel(name: string): string {
+  const title = useBoard((s) => titleIn(s.canvas, name));
+  return blockLabel(name, { title });
+}
+
 export function setGuestDraft(name: string, text: string): void {
   const s = useBoard.getState();
   const guestDrafts = { ...s.guestDrafts };
@@ -190,7 +212,7 @@ export function clearMode(name: string): void {
 }
 
 export function modeOf(name: string, type: BlockInfo["type"] | undefined): ViewMode {
-  if (type === "image") return "rendered"; // drawing is its edit mode (ui-state `drawing`)
+  if (type === "image" || type === "pdf") return "rendered"; // an image's edit mode is drawing (ui-state `drawing`); a PDF has none
   return useBoard.getState().modes[name] ?? "rendered";
 }
 
@@ -294,6 +316,7 @@ export function applyServerMessage(msg: ServerMessage, onExternalChange?: (block
         comments: msg.comments ?? [],
         guests: msg.guests ?? [],
         guestThreads: msg.guestThreads ?? {},
+        refFiles: msg.files ?? [],
       });
       for (const b of msg.blocks) onExternalChange?.(b);
       break;
@@ -381,6 +404,9 @@ export function applyServerMessage(msg: ServerMessage, onExternalChange?: (block
     }
     case "conflicts.changed":
       useBoard.setState({ conflicts: msg.conflicts });
+      break;
+    case "files.changed":
+      useBoard.setState({ refFiles: msg.files });
       break;
     case "agent.status":
       useBoard.setState({ agent: msg.status });

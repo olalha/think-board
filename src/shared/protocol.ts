@@ -19,10 +19,10 @@ export interface BlockInfo {
   name: string;
   file: string;
   type: BlockType;
-  /** Content hash; for images it doubles as the cache-busting version. */
+  /** Content hash; for images and PDFs it doubles as the cache-busting version. */
   hash: string;
   size: number;
-  /** Text content (markdown, mermaid, html). Absent for images. */
+  /** Text content (markdown, mermaid, html). Absent for images and PDFs. */
   content?: string;
 }
 
@@ -54,7 +54,21 @@ export interface ChangeSummary {
   comments?: string[];
   /** Image blocks drawn on (their drawing changed). */
   drawn?: string[];
+  /** Paths changed in the files/ folder (relative to it). */
+  files?: string[];
 }
+
+/** A file in the canvas's files/ folder: reference material that is not a block. */
+export interface ReferenceFile {
+  /** Relative to files/, "/"-separated ("data/sales.csv"). */
+  path: string;
+  size: number;
+  /** Last modified, Unix ms. */
+  mtime: number;
+}
+
+/** The largest file the Files tab accepts (an upload's whole body). */
+export const MAX_REFERENCE_FILE_BYTES = 50 * 1024 * 1024;
 
 /** One moment in a canvas's history (see server/history.ts). */
 export interface HistoryEntry {
@@ -157,6 +171,22 @@ export interface ValidationReport {
   final: boolean;
 }
 
+/** One question the canvas agent asks the user (`think ask`). The UI always adds an "Other" answer. */
+export interface AskQuestion {
+  question: string;
+  /** A short chip shown above the question (12 characters at most). */
+  header?: string;
+  options: { label: string; description?: string }[];
+  /** Checkboxes (pick any) instead of radio buttons (pick one). */
+  multiSelect?: boolean;
+}
+
+/** The user's answer to one question: the option labels picked, and/or their own text. */
+export interface AskAnswer {
+  selected: string[];
+  other?: string;
+}
+
 export type ChatEntry =
   | {
       kind: "user";
@@ -190,6 +220,19 @@ export type ChatEntry =
       options: { optionId: string; name: string; kind: string }[];
       /** Set once answered: the chosen option name, or "cancelled". */
       outcome?: string;
+    }
+  /**
+   * Questions the canvas agent asked with `think ask`; its command waits for the
+   * answer. `id` is the question's id (`think ask --wait <id>`). Set once settled:
+   * `outcome`, and for "answered" the `answers` (one per question, in order).
+   */
+  | {
+      kind: "question";
+      id: string;
+      ts: number;
+      questions: AskQuestion[];
+      outcome?: "answered" | "skipped" | "cancelled";
+      answers?: AskAnswer[];
     }
   | { kind: "system"; id: string; ts: number; level: "info" | "warning" | "error"; text: string; detail?: string }
   /** A message from an outside agent (posted with `think say`). */
@@ -256,6 +299,8 @@ export type ServerMessage =
       /** Outside agents that joined (or left) this canvas, and their tabs' lines (the latest of each). */
       guests?: GuestInfo[];
       guestThreads?: Record<string, GuestEntry[]>;
+      /** The files/ folder's contents (absent from older servers). */
+      files?: ReferenceFile[];
     }
   | { type: "project.meta"; name: string; provider: ProviderInfo; settings: CanvasSettings }
   | { type: "readme.changed"; content: string | null }
@@ -272,6 +317,8 @@ export type ServerMessage =
   | { type: "validation.errors"; report: ValidationReport }
   | { type: "mermaid.lastValid"; name: string; source: string | null }
   | { type: "conflicts.changed"; conflicts: string[] }
+  /** The files/ folder changed (an upload, a rename, the agent): its whole listing. */
+  | { type: "files.changed"; files: ReferenceFile[] }
   | { type: "agent.status"; status: AgentStatus }
   | { type: "agent.turn"; running: boolean }
   | { type: "agent.commands"; commands: AgentCommand[] }
@@ -297,7 +344,7 @@ export type LayoutOp =
   | { op: "node.move"; id: string; x: number; y: number }
   | { op: "node.resize"; id: string; x: number; y: number; width: number; height: number }
   | { op: "edge.add"; edge: CanvasEdge }
-  | { op: "edge.update"; id: string; patch: Partial<Omit<CanvasEdge, "id" | "fromNode" | "toNode">> }
+  | { op: "edge.update"; id: string; patch: Partial<Omit<CanvasEdge, "id">> }
   | { op: "edge.delete"; id: string }
   | { op: "node.protect"; id: string; protected: boolean }
   | { op: "group.add"; group: GroupNode }
@@ -330,7 +377,7 @@ export interface PasteBlock {
   type: BlockType;
   /** Text blocks: the content. */
   content?: string;
-  /** Image blocks: the file to copy, from a canvas on this server. */
+  /** Binary blocks (images, PDFs): the file to copy, from a canvas on this server. */
   image?: { canvas: string; file: string };
   x: number;
   y: number;
@@ -343,6 +390,13 @@ export type ClientMessage = { ref?: string } & (
   | { type: "user.layout"; ops: LayoutOp[] }
   | { type: "block.create"; blockType: "markdown" | "mermaid" | "html"; x: number; y: number }
   | { type: "block.delete"; names: string[] }
+  /**
+   * Rename a block → { name, title? }. `to` is a name (`tea-guide`: the file is
+   * renamed, any title cleared) or free text (`Tea guide 🍵`: it becomes the
+   * title, on the block's canvas node, and the file is renamed to the text made
+   * a name, made unique). The same name: only the title changes. `[[links]]` to
+   * the block in Markdown blocks follow.
+   */
   | { type: "block.rename"; name: string; to: string }
   /** Paste copied blocks (and the frames and connections among them) → the new names and group ids by old. */
   | { type: "blocks.paste"; blocks: PasteBlock[]; edges: CanvasEdge[]; groups: GroupNode[] }
@@ -375,6 +429,8 @@ export type ClientMessage = { ref?: string } & (
   | { type: "agent.prompt"; text: string }
   | { type: "agent.cancel" }
   | { type: "agent.permission"; requestId: string; optionId: string | null }
+  /** Answer the agent's questions (a `question` entry's id), one answer per question; null skips them. */
+  | { type: "agent.answer"; questionId: string; answers: AskAnswer[] | null }
   | { type: "agent.restart" }
   | { type: "agent.newSession" }
   /** Switch the canvas to another provider's agent, in a new conversation. */

@@ -12,7 +12,7 @@
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-blue"></a>
 </p>
 
-Every block on a think canvas is a real file — Markdown, Mermaid, HTML, images —
+Every block on a think canvas is a real file — Markdown, Mermaid, HTML, images, PDFs —
 and the canvas is a live view of a folder that is a git repository. So any
 coding agent can work on it: each canvas has its own (Claude Code or Codex), and
 agents in your terminal join with one command. One `docker compose up` runs it
@@ -44,8 +44,8 @@ on your laptop or a server.
 - **Every change is kept.** Each edit — yours, the agent's, anyone's — is a git
   commit. History previews any moment and restores it.
 - **Made for thinking:** frames, links, saved views and a presentation mode,
-  drawing on images, quick jump (⌘K), and a phone layout for reading and
-  chatting.
+  drawing on images, reference files (spreadsheets, documents, data) the agent
+  can read, quick jump (⌘K), and a phone layout for reading and chatting.
 - **Yours to run.** Two Docker containers and one data folder. The agents run
   isolated in their own container and sign in with your Claude or ChatGPT plan,
   or an API key.

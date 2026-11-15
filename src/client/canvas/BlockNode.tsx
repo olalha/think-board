@@ -2,27 +2,30 @@
 // toggle, menu) and a body that is either the raw editor or the renderer.
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Handle, NodeResizer, Position, useStore, type NodeProps, type ReactFlowState } from "@xyflow/react";
-import { AlertCircle, Check, Code2, Eye, FileText, Globe, Image as ImageIcon, Lock, MoreHorizontal, Pencil, PenLine, Shield, Undo2, Workflow, WrapText } from "lucide-react";
-import { BLOCK_SIZES, displayName, isValidName, toBlockName, type BlockType } from "../../shared/blocks";
+import { AlertCircle, BookOpenText, Check, Code2, Eye, FileText, Globe, Image as ImageIcon, Lock, MoreHorizontal, Pencil, PenLine, Shield, Undo2, Workflow, WrapText } from "lucide-react";
+import { BLOCK_SIZES, blockLabel, isTextType, MAX_TITLE, type BlockType } from "../../shared/blocks";
+import { renamePreview } from "../lib/naming";
 import type { BlockInfo } from "../../shared/protocol";
 import { fileUrl } from "../lib/api";
 import { act, layout } from "../lib/project";
-import { modeOf, setMode, setWrap, useBoard } from "../lib/store";
+import { modeOf, setMode, setWrap, titleIn, useBoard } from "../lib/store";
 import { PHONE, TOUCH, useMedia } from "../lib/device";
 import { effectiveTheme, useSettings } from "../lib/settings";
 // CodeMirror is sizeable: loaded on first edit (and preloaded when idle, see Board).
 const CodeEditor = lazy(() => import("../blocks/CodeEditor").then((m) => ({ default: m.CodeEditor })));
 const DrawingSession = lazy(() => import("../drawing/DrawingEditor"));
-import { HtmlView, ImageView, MarkdownView, MermaidView } from "../blocks/renderers";
+import { HtmlView, ImageView, MarkdownView, MermaidView, PdfView } from "../blocks/renderers";
 import { useCanvasUi } from "./ui-state";
 import { renameBlock, startDrawing, stopDrawing, zoomToBlock } from "./actions";
 import { CommentButton } from "../components/Comments";
+import { useLinkChips } from "./link-chips";
 
 export const TYPE_META: Record<BlockType, { label: string; icon: typeof FileText }> = {
   markdown: { label: "Markdown", icon: FileText },
   mermaid: { label: "Mermaid diagram", icon: Workflow },
   html: { label: "HTML", icon: Globe },
   image: { label: "Image", icon: ImageIcon },
+  pdf: { label: "PDF", icon: BookOpenText },
 };
 
 const SIDE_POS = { top: Position.Top, right: Position.Right, bottom: Position.Bottom, left: Position.Left } as const;
@@ -68,6 +71,8 @@ export const BlockNode = memo(function BlockNode({ id, selected, width, height }
   const lastValid = useBoard((s) => s.mermaidLastValid[id]);
   const focusRequest = useBoard((s) => s.focusRequest === id);
   const isProtected = useBoard((s) => s.canvas.nodes.some((n) => n.id === id && n.type === "file" && !!n.protected));
+  const title = useBoard((s) => titleIn(s.canvas, id));
+  const label = blockLabel(id, { title });
   // History preview and agent turns are read-only — except protected blocks,
   // which stay the user's to write in while the agent works.
   const locked = liveLocked || !!tt;
@@ -87,11 +92,12 @@ export const BlockNode = memo(function BlockNode({ id, selected, width, height }
   const renaming = useCanvasUi((s) => s.renaming === id);
   const flash = useCanvasUi((s) => s.flash === id);
   const theme = useTheme();
+  const linkChips = useLinkChips();
 
   const type: BlockType = block?.type ?? "markdown";
   const Icon = TYPE_META[type].icon;
   const drawing = useCanvasUi((s) => s.drawing === id) && type === "image" && !tt;
-  const effectiveMode = type === "image" ? (drawing ? "raw" : "rendered") : mode;
+  const effectiveMode = type === "image" ? (drawing ? "raw" : "rendered") : type === "pdf" ? "rendered" : mode;
   const sizes = BLOCK_SIZES[type];
 
   // Long lines wrap unless this block says otherwise; Mermaid starts unwrapped.
@@ -101,6 +107,7 @@ export const BlockNode = memo(function BlockNode({ id, selected, width, height }
   const toggleMode = useCallback(() => {
     if (!block) return;
     if (block.type === "image") return useCanvasUi.getState().drawing === id ? stopDrawing() : startDrawing(id);
+    if (!isTextType(block.type)) return; // a PDF has no edit mode
     const next = modeOf(id, block.type) === "raw" ? "rendered" : "raw";
     setMode(id, next);
     if (next === "raw") useBoard.setState({ focusRequest: id });
@@ -170,7 +177,7 @@ export const BlockNode = memo(function BlockNode({ id, selected, width, height }
       case "markdown":
         body = (
           <div className={`block-scroll ${selected ? `nowheel ${touch ? "nopan" : ""}` : ""}`}>
-            <MarkdownView source={block.content ?? ""} resolveFile={resolveFile} />
+            <MarkdownView source={block.content ?? ""} resolveFile={resolveFile} {...linkChips} />
           </div>
         );
         break;
@@ -178,10 +185,13 @@ export const BlockNode = memo(function BlockNode({ id, selected, width, height }
         body = <MermaidView source={block.content ?? ""} theme={theme} errorActions={revertButton} />;
         break;
       case "html":
-        body = <HtmlBody name={id} source={block.content ?? ""} selected={!!selected} width={width} height={height} />;
+        body = <HtmlBody name={id} label={label} source={block.content ?? ""} selected={!!selected} width={width} height={height} />;
         break;
       case "image":
-        body = slug ? <ImageView src={tt ? `${fileUrl(slug, block.file)}?rev=${block.hash}` : fileUrl(slug, block.file, block.hash)} alt={displayName(id)} /> : null;
+        body = slug ? <ImageView src={tt ? `${fileUrl(slug, block.file)}?rev=${block.hash}` : fileUrl(slug, block.file, block.hash)} alt={label} /> : null;
+        break;
+      case "pdf":
+        body = slug ? <PdfBody name={id} src={tt ? `${fileUrl(slug, block.file)}?rev=${block.hash}` : fileUrl(slug, block.file, block.hash)} selected={!!selected} width={width} height={height} /> : null;
         break;
     }
   }
@@ -190,7 +200,7 @@ export const BlockNode = memo(function BlockNode({ id, selected, width, height }
     <div
       className={`block type-${type} ${selected ? "selected" : ""} ${locked ? "locked" : ""} mode-${effectiveMode} ${ttClass} ${canEdit && liveLocked ? "editable-in-turn" : ""} ${flash ? "flash" : ""} ${isProtected ? "protected" : ""} ${ring ? `agent-here${ring.by ? " by-guest" : ""}` : ""}`}
       onDoubleClick={(e) => {
-        if (effectiveMode === "rendered" && canEdit && !(type === "image" && liveLocked)) {
+        if (effectiveMode === "rendered" && canEdit && type !== "pdf" && !(type === "image" && liveLocked)) {
           e.stopPropagation();
           toggleMode();
         }
@@ -229,7 +239,7 @@ export const BlockNode = memo(function BlockNode({ id, selected, width, height }
         ) : (
           <>
             <span className="block-name" title={`${block?.file ?? id} — double-click to zoom in, F2 to rename`}>
-              {displayName(id)}
+              {label}
             </span>
             {!locked && (
               <button
@@ -266,7 +276,7 @@ export const BlockNode = memo(function BlockNode({ id, selected, width, height }
           </span>
         )}
         <span className="block-spacer" />
-        {type !== "image" && !tt && effectiveMode === "raw" && (
+        {isTextType(type) && !tt && effectiveMode === "raw" && (
           <button
             className={`icon-btn small nodrag ${wrap ? "active" : ""}`}
             data-tip={wrap ? "Long lines wrap (Alt+Z)" : "Long lines scroll sideways (Alt+Z)"}
@@ -294,7 +304,7 @@ export const BlockNode = memo(function BlockNode({ id, selected, width, height }
             {drawing ? <Check size={14} /> : <PenLine size={14} />}
           </button>
         )}
-        {type !== "image" && !tt && (
+        {isTextType(type) && !tt && (
           <button
             className="icon-btn small nodrag"
             data-tip={effectiveMode === "raw" ? "Show rendered (Esc)" : "Edit raw (Enter)"}
@@ -327,13 +337,23 @@ export const BlockNode = memo(function BlockNode({ id, selected, width, height }
 
 // ---------------------------------------------------------------- rename
 
-/** Inline name editor in the block header. Enter renames, Esc cancels. */
+/**
+ * Inline name editor in the block header: any text (symbols, emoji) becomes
+ * the block's title, and the file gets that text made a name, shown as a hint
+ * when it changes. Enter renames, Esc cancels.
+ */
 function NameEditor({ name }: { name: string }) {
-  const [value, setValue] = useState(displayName(name));
+  const title = useBoard((s) => titleIn(s.canvas, name));
+  const [value, setValue] = useState(() => blockLabel(name, { title }));
   const [error, setError] = useState<string | null>(null);
   const ref = useRef<HTMLInputElement>(null);
   const done = useRef(false);
-  const target = toBlockName(value);
+  const preview = useMemo(() => {
+    const s = useBoard.getState();
+    const taken = new Set([...Object.keys(s.blocks), ...s.canvas.nodes.filter((n) => n.type === "group").map((n) => n.id)]);
+    taken.delete(name);
+    return renamePreview(value, name, title, taken);
+  }, [value, name, title]);
   useEffect(() => {
     ref.current?.focus();
     ref.current?.select();
@@ -341,25 +361,27 @@ function NameEditor({ name }: { name: string }) {
   const close = () => useCanvasUi.setState({ renaming: null });
   const commit = async () => {
     if (done.current) return;
-    if (!target || target === name) {
+    if (!preview) {
       done.current = true;
       return close();
     }
-    if (!isValidName(target)) return setError("Use letters, digits and spaces");
-    if (useBoard.getState().blocks[target]) return setError(`“${displayName(target)}” exists`);
+    if (preview.error) return setError(preview.error);
     done.current = true;
-    const ok = await renameBlock(name, target);
+    const ok = await renameBlock(name, value);
     close();
     if (ok) useBoard.setState({ focusRequest: null });
   };
+  const ext = useBoard.getState().blocks[name]?.file.split(".").pop() ?? "";
+  const hint = error ?? preview?.error ?? (preview && preview.name !== name ? `File: ${preview.name}.${ext}` : "");
   return (
     <span className="name-editor nodrag">
       <input
         ref={ref}
         className={`name-input ${error ? "invalid" : ""}`}
         value={value}
-        maxLength={60}
+        maxLength={MAX_TITLE}
         spellCheck={false}
+        aria-label="Block title"
         onChange={(e) => {
           setValue(e.target.value);
           setError(null);
@@ -377,7 +399,7 @@ function NameEditor({ name }: { name: string }) {
           else if (!done.current) close();
         }}
       />
-      <span className={`name-hint ${error ? "danger-text" : ""}`}>{error ?? (target && target !== name ? `${target}.${useBoard.getState().blocks[name]?.file.split(".").pop() ?? ""}` : "")}</span>
+      <span className={`name-hint ${error || preview?.error ? "danger-text" : ""}`}>{hint}</span>
     </span>
   );
 }
@@ -392,11 +414,10 @@ const zoomSelector = (s: ReactFlowState) => s.transform[2];
  * lightweight placeholder. The iframe only takes pointer events once the block
  * is selected, so it never swallows canvas drags or zooms.
  */
-function HtmlBody({ name, source, selected, width, height }: { name: string; source: string; selected: boolean; width?: number; height?: number }) {
-  const pref = useSettings((s) => s.htmlPreviews);
-  const threshold = useBoard((s) => s.htmlLiveZoom);
+/** Whether a block is on screen (or within a margin of it). */
+function useOnScreen(name: string, width?: number, height?: number): boolean {
   const node = useStore(useCallback((s: ReactFlowState) => s.nodeLookup.get(name), [name]));
-  const visible = useStore(
+  return useStore(
     useCallback(
       (s: ReactFlowState) => {
         if (!node) return false;
@@ -412,6 +433,12 @@ function HtmlBody({ name, source, selected, width, height }: { name: string; sou
       [node, width, height],
     ),
   );
+}
+
+function HtmlBody({ name, label, source, selected, width, height }: { name: string; label: string; source: string; selected: boolean; width?: number; height?: number }) {
+  const pref = useSettings((s) => s.htmlPreviews);
+  const threshold = useBoard((s) => s.htmlLiveZoom);
+  const visible = useOnScreen(name, width, height);
   const zoomOk = useStore(useCallback((s: ReactFlowState) => zoomSelector(s) >= threshold, [threshold]));
   const theme = useTheme();
   const live = pref === "always" ? visible : pref === "never" ? false : visible && zoomOk;
@@ -425,8 +452,32 @@ function HtmlBody({ name, source, selected, width, height }: { name: string; sou
   }
   return (
     <div className={`html-wrap ${selected ? "interactive nowheel" : ""}`}>
-      <HtmlView source={source} title={displayName(name)} theme={theme} />
+      <HtmlView source={source} title={label} theme={theme} />
       {!selected && <div className="html-shield" title="Select the block to interact with it" />}
     </div>
   );
+}
+
+// ---------------------------------------------------------------- pdf body
+
+/**
+ * A PDF block: pdf.js draws its pages only while the block is on screen (a
+ * placeholder otherwise, which frees the pages' memory), and less sharp when
+ * zoomed out past the HTML live-preview zoom. Selected, it scrolls with the
+ * wheel (and with a finger on touch screens) like a Markdown block.
+ */
+function PdfBody({ name, src, selected, width, height }: { name: string; src: string; selected: boolean; width?: number; height?: number }) {
+  const visible = useOnScreen(name, width, height);
+  const threshold = useBoard((s) => s.htmlLiveZoom);
+  const zoomOk = useStore(useCallback((s: ReactFlowState) => zoomSelector(s) >= threshold, [threshold]));
+  const touch = useMedia(TOUCH);
+  if (!visible) {
+    return (
+      <div className="html-placeholder pdf-placeholder">
+        <BookOpenText size={22} />
+        <span>PDF</span>
+      </div>
+    );
+  }
+  return <PdfView src={src} quality={zoomOk ? "full" : "thumb"} scrollClass={selected ? `nowheel ${touch ? "nopan" : ""}` : ""} />;
 }

@@ -74,6 +74,21 @@ describe("migrations", () => {
     expect((await git(dir, ["status", "--porcelain"])).trim()).toBe("");
   });
 
+  it("brings a 0.6 canvas (format 3) to format 4, changing nothing else", async () => {
+    const store = await makeStore();
+    const { slug } = await store.create("Six", "claude-code");
+    const dir = store.dir(slug);
+    const file = path.join(dir, "think.json");
+    const before = JSON.parse(await fs.readFile(file, "utf8"));
+    await fs.writeFile(file, JSON.stringify({ ...before, format: 3 }));
+    const canvas = await fs.readFile(path.join(dir, "canvas.json"), "utf8");
+    await git(dir, ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qam", "as 0.6 left it"]);
+    await store.migrate(slug);
+    expect(JSON.parse(await fs.readFile(file, "utf8"))).toEqual({ ...before, format: 4 });
+    expect(await fs.readFile(path.join(dir, "canvas.json"), "utf8")).toBe(canvas);
+    expect((await git(dir, ["log", "-1", "--format=%an|%s"])).trim()).toBe("think|think: upgraded the canvas to format 4");
+  });
+
   it("refuses a canvas from a newer think and flags it in the list", async () => {
     const store = await makeStore();
     const { slug } = await store.create("Future", "claude-code");

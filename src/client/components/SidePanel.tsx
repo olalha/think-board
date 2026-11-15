@@ -1,8 +1,10 @@
 // The left side panel: Outline (every block, by group), Views (saved
-// viewpoints), README (what the canvas is about) and History (moments you can
+// viewpoints), README (what the canvas is about), Files (the files/ folder:
+// reference material that is not a block) and History (moments you can
 // preview and restore). Toggle with B.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  BookOpenText,
   ArrowLeftRight,
   Bot,
   ChevronDown,
@@ -14,6 +16,7 @@ import {
   FileText,
   Frame,
   Globe,
+  Paperclip,
   GripVertical,
   History as HistoryIcon,
   Image as ImageIcon,
@@ -34,12 +37,13 @@ import {
   Workflow,
   X,
 } from "lucide-react";
-import { displayName, type BlockType } from "../../shared/blocks";
+import { blockLabel, type BlockType } from "../../shared/blocks";
 import { groupMembers, type CanvasView, type ViewList } from "../../shared/canvas";
 import type { HistoryEntry, HistorySnapshot } from "../../shared/protocol";
 import { MarkdownView } from "../blocks/renderers";
+import { useLinkChips } from "../canvas/link-chips";
 import { act, flushEdits, layout, request } from "../lib/project";
-import { panelMax, useBoard } from "../lib/store";
+import { labelOf, panelMax, useBoard } from "../lib/store";
 import { PHONE, useMedia } from "../lib/device";
 import { useSettings, type Settings } from "../lib/settings";
 import { toast } from "../lib/toasts";
@@ -48,14 +52,16 @@ import { useCanvasUi } from "../canvas/ui-state";
 import { startPresenting } from "./Present";
 import { CommentBadge, CommentsPanel as Comments } from "./Comments";
 import { Dialog } from "./Dialogs";
+import { dragHasFiles, FilesPanel, uploadFiles } from "./FilesPanel";
 
-const TYPE_ICON: Record<BlockType, typeof FileText> = { markdown: FileText, mermaid: Workflow, html: Globe, image: ImageIcon };
+const TYPE_ICON: Record<BlockType, typeof FileText> = { markdown: FileText, mermaid: Workflow, html: Globe, image: ImageIcon, pdf: BookOpenText };
 const TABS: { id: Settings["sidePanel"]; label: string; icon: typeof FileText }[] = [
   { id: "outline", label: "Blocks", icon: ListTree },
   { id: "views", label: "Views", icon: Eye },
   { id: "slides", label: "Presentation", icon: Presentation },
   { id: "comments", label: "Comments", icon: MessageSquare },
   { id: "readme", label: "README", icon: FileText },
+  { id: "files", label: "Files", icon: Paperclip },
   { id: "history", label: "History", icon: HistoryIcon },
 ];
 
@@ -101,6 +107,25 @@ export function SidePanel() {
             aria-label={t.label}
             className={tab === t.id ? "on" : ""}
             onClick={() => set("sidePanel", t.id)}
+            // Files dropped on the Files button open the tab and upload there.
+            onDragOver={
+              t.id === "files"
+                ? (e) => {
+                    if (!dragHasFiles(e)) return;
+                    e.preventDefault();
+                    if (tab !== "files") set("sidePanel", "files");
+                  }
+                : undefined
+            }
+            onDrop={
+              t.id === "files"
+                ? (e) => {
+                    if (!dragHasFiles(e)) return;
+                    e.preventDefault();
+                    void uploadFiles([...e.dataTransfer.files]);
+                  }
+                : undefined
+            }
             data-tip={t.label}
             data-tip-pos="right"
           >
@@ -122,6 +147,7 @@ export function SidePanel() {
           {open && tab === "slides" && <Slides />}
           {open && tab === "comments" && <Comments />}
           {open && tab === "readme" && <Readme />}
+          {open && tab === "files" && <FilesPanel />}
           {open && tab === "history" && (phone ? <p className="side-empty">History — seeing the canvas as it was, and restoring — is on a tablet or computer, where the canvas has room to show it.</p> : <History />)}
         </div>
       </div>
@@ -137,7 +163,9 @@ function Outline() {
   const lastTurn = useBoard((s) => s.lastTurn);
   const [q, setQ] = useState("");
   const changed = new Set(lastTurn?.changed ?? []);
-  const match = (name: string) => !q || displayName(name).toLowerCase().includes(q.toLowerCase()) || (blocks[name]?.content ?? "").toLowerCase().includes(q.toLowerCase());
+  const titles = new Map(canvas.nodes.flatMap((n) => (n.type === "file" && n.title ? [[n.id, n.title] as const] : [])));
+  const label = (name: string) => blockLabel(name, { title: titles.get(name) });
+  const match = (name: string) => !q || label(name).toLowerCase().includes(q.toLowerCase()) || (blocks[name]?.content ?? "").toLowerCase().includes(q.toLowerCase());
 
   const sections = useMemo(() => {
     const groups = canvas.nodes.filter((n) => n.type === "group").sort((a, b) => a.y - b.y || a.x - b.x);
@@ -176,7 +204,7 @@ function Outline() {
           <div className="chip-row">
             {lastTurn.changed.filter((n) => blocks[n]).map((n) => (
               <button key={n} className="chip changed" onClick={() => jumped(() => zoomToBlock(n, { select: true }))}>
-                {displayName(n)}
+                {label(n)}
               </button>
             ))}
           </div>
@@ -200,8 +228,8 @@ function Outline() {
               return (
                 <button key={n} className="outline-row" onClick={() => jumped(() => zoomToBlock(n, { select: true }))}>
                   <Icon size={14} className={`type-${b.type}`} />
-                  <span className="outline-name">{displayName(n)}</span>
-                  {heading && heading.toLowerCase() !== displayName(n).toLowerCase() && <span className="outline-detail">{heading}</span>}
+                  <span className="outline-name">{label(n)}</span>
+                  {heading && heading.toLowerCase() !== label(n).toLowerCase() && <span className="outline-detail">{heading}</span>}
                   {protectedIds.has(n) && <Shield size={12} className="outline-protected" />}
                   {changed.has(n) && <span className="changed-dot" title="Changed in the agent's last turn" />}
                 </button>
@@ -400,6 +428,7 @@ function ViewName({ view, list, onDone }: { view: CanvasView; list: ViewList; on
 
 function Readme() {
   const readme = useBoard((s) => s.readme);
+  const links = useLinkChips();
   const locked = useBoard((s) => s.lock.locked);
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(readme ?? "");
@@ -464,7 +493,7 @@ function Readme() {
         />
       ) : (
         <div className="readme-view" onDoubleClick={() => !locked && setEditing(true)}>
-          {readme ? <MarkdownView source={readme} /> : <p className="side-empty">No README yet.</p>}
+          {readme ? <MarkdownView source={readme} {...links} /> : <p className="side-empty">No README yet.</p>}
           {placeholder && <p className="side-empty">Describe what this canvas is for — or ask the agent to write the README from what's on the board.</p>}
         </div>
       )}
@@ -491,11 +520,12 @@ function entryTitle(e: HistoryEntry): string {
   if (e.kind === "user") {
     const s = e.summary;
     const bits: string[] = [];
-    if (s.added.length) bits.push(`added ${s.added.map(displayName).join(", ")}`);
-    if (s.edited.length) bits.push(`edited ${s.edited.map(displayName).join(", ")}`);
-    if (s.renamed.length) bits.push(`renamed ${s.renamed.map(([a, b]) => `${displayName(a)} → ${displayName(b)}`).join(", ")}`);
-    if (s.removed.length) bits.push(`deleted ${s.removed.map(displayName).join(", ")}`);
+    if (s.added.length) bits.push(`added ${s.added.map(labelOf).join(", ")}`);
+    if (s.edited.length) bits.push(`edited ${s.edited.map(labelOf).join(", ")}`);
+    if (s.renamed.length) bits.push(`renamed ${s.renamed.map(([a, b]) => `${labelOf(a)} → ${labelOf(b)}`).join(", ")}`);
+    if (s.removed.length) bits.push(`deleted ${s.removed.map(labelOf).join(", ")}`);
     if (s.readme) bits.push("edited the README");
+    if (s.files?.length) bits.push(s.files.length === 1 ? `changed files/${s.files[0]}` : `changed ${s.files.length} files in files/`);
     if (!bits.length && s.layout.length) bits.push("rearranged the canvas");
     const t = bits.join("; ") || "edits";
     return t.charAt(0).toUpperCase() + t.slice(1);
@@ -603,10 +633,10 @@ function History() {
               </button>
               {(s.added.length + s.edited.length + s.removed.length + s.renamed.length > 0 || s.layout.length > 0) && (
                 <div className="history-changes">
-                  {s.added.map((n) => <span key={`a${n}`} className="chip added" onClick={() => void preview(e, entries ?? []).then(() => zoomToBlock(n, { select: true }))}>+ {displayName(n)}</span>)}
-                  {s.edited.map((n) => <span key={`e${n}`} className="chip edited" onClick={() => void preview(e, entries ?? []).then(() => zoomToBlock(n, { select: true }))}>{displayName(n)}</span>)}
-                  {s.renamed.map(([a, b]) => <span key={`r${b}`} className="chip edited">{displayName(a)} → {displayName(b)}</span>)}
-                  {s.removed.map((n) => <span key={`d${n}`} className="chip removed">{displayName(n)}</span>)}
+                  {s.added.map((n) => <span key={`a${n}`} className="chip added" onClick={() => void preview(e, entries ?? []).then(() => zoomToBlock(n, { select: true }))}>+ {labelOf(n)}</span>)}
+                  {s.edited.map((n) => <span key={`e${n}`} className="chip edited" onClick={() => void preview(e, entries ?? []).then(() => zoomToBlock(n, { select: true }))}>{labelOf(n)}</span>)}
+                  {s.renamed.map(([a, b]) => <span key={`r${b}`} className="chip edited">{labelOf(a)} → {labelOf(b)}</span>)}
+                  {s.removed.map((n) => <span key={`d${n}`} className="chip removed">{labelOf(n)}</span>)}
                   {s.layout.length > 0 && (
                     <button className="history-layout" onClick={() => setOpen(open === e.id ? null : e.id)}>
                       {open === e.id ? <ChevronDown size={12} /> : <ChevronRight size={12} />} {s.layout.length === 1 && s.layout[0].length < 48 ? s.layout[0] : `${s.layout.length} layout change${s.layout.length === 1 ? "" : "s"}`}
@@ -719,7 +749,7 @@ export function DiffDialog() {
   const rows = data ? lineDiff(data.then ?? "", data.now ?? "") : [];
   return (
     <Dialog
-      title={`${displayName(d.name)}: then → now`}
+      title={`${labelOf(d.name)}: then → now`}
       icon={<ArrowLeftRight size={18} />}
       onClose={close}
       wide

@@ -17,16 +17,24 @@ import { imageSize } from "image-size";
 import type * as acp from "@agentclientprotocol/sdk";
 import {
   BLOCK_SIZES,
+  blockLabel,
+  cleanTitle,
   displayName,
   EXTENSION_PRECEDENCE,
   extensionForMime,
   initialContent,
   isTextType,
   isValidName,
+  looksLikePdf,
+  MAX_PDF_BYTES,
   parseBlockFile,
+  PDF_MIME,
+  renameTarget,
   TYPE_EXTENSION,
   type BlockType,
+  type TextType,
 } from "../shared/blocks.js";
+import { findBlockLinks, rewriteBlockLinks } from "../shared/links.js";
 import { EDGE_STYLES, emptyCanvas, serializeCanvas, SIDES, type Canvas, type CanvasEdge, type CanvasNode, type CanvasView, type FileNode, type GroupNode, type Side } from "../shared/canvas.js";
 import type {
   AgentCommand,
@@ -42,6 +50,7 @@ import type {
   LockState,
   PasteBlock,
   ProviderInfo,
+  ReferenceFile,
   ServerMessage,
   ValidationIssue,
   ValidationReport,
@@ -87,6 +96,7 @@ import { briefSummary, commitWork, isEmptySummary, summarizeRange, summaryLines,
 import { CANVAS_COMMANDS, CHANGING_COMMANDS, GUEST_ONLY_COMMANDS, LAYOUT_COMMANDS, OpError, runCommand, toCommandRequest, type Caller, type CommandHost, type CommandRequest } from "./commands.js";
 import { GuestRoom } from "./guest-room.js";
 import { RequestDir } from "./requests.js";
+import { ASK_WAIT_MS, checkAnswers, parseAskSpec, QuestionDesk, type AskReply, type QuestionEntry } from "./ask.js";
 import { historySnapshot, listHistory } from "./history.js";
 import type { MermaidValidator } from "./mermaid.js";
 import { allocateName } from "./names.js";
@@ -94,9 +104,11 @@ import { SLUG_RE, UserError, type ProjectMeta, type ProjectState, type ProjectSt
 import type { Templates } from "./templates.js";
 import { NewerFormatError, readThinkFile, sameThinkFile, serializeThinkFile, THINK_FILE } from "./think-file.js";
 import { COMMENTS_FILE, MAX_COMMENT, parseComments, serializeComments } from "./comments.js";
+import { PdfTextStore } from "./pdf-text.js";
 import { BASE_FILE_RE, DRAWINGS_DIR, drawingSchema, readDrawing, renderDrawing, sidecarDir } from "./drawings.js";
 import { DRAWING_FORMAT, type Drawing } from "../shared/drawing.js";
 import { errorMessage, hashOf, newId, SerialQueue, type Logger } from "./util.js";
+import { cleanFilePath, FILES_DIR, freeFilePath, listReferenceFiles, MAX_REFERENCE_FILE_BYTES, pruneEmptyDirs, resolveFilePath } from "./reference-files.js";
 
 export interface ClientConn {
   id: string;
@@ -116,6 +128,8 @@ export interface RuntimeDeps {
   onClosed?: () => void;
   /** Called after a login terminal for this project's provider exits. */
   onProviderLogin?: (providerId: string) => void;
+  /** How long one `think ask` call waits for the user before saying "run think ask --wait" (tests shorten it). */
+  askWaitMs?: number;
 }
 
 interface FileEntry {
@@ -143,6 +157,8 @@ export class ProjectRuntime {
   readonly dir: string;
   private readonly thinkDir: string;
   private readonly queue = new SerialQueue();
+  /** The text of PDF blocks, kept in .think/text/ for agents that can't read a PDF. */
+  private readonly pdfText: PdfTextStore;
   private readonly clients = new Map<string, ClientConn>();
 
   private meta!: ProjectMeta;
@@ -184,6 +200,8 @@ export class ProjectRuntime {
   private agentStatus: AgentStatus = { state: "stopped" };
   private agentStarting: Promise<void> | null = null;
   private pendingPermissions = new Map<string, { resolve: (optionId: string | null) => void; entryId: string }>();
+  /** Questions the agent asked (`think ask`) that wait for the user. */
+  private readonly questions: QuestionDesk;
   private streaming: { id: string; kind: "agent" | "thought"; text: string; ts: number } | null = null;
   private toolEntries = new Map<string, string>();
   /** Recent deletions that can still be undone (newest last; their files wait in .think/trash/<batch>). */
@@ -219,8 +237,18 @@ export class ProjectRuntime {
    * content is recognised as a rename and keeps the old node's place.
    */
   private recentlyGone = new Map<string, { cand: RenameCandidate; node?: FileNode; edges?: CanvasEdge[]; at: number }>();
+  /**
+   * Block renames (old → new, in order) whose `[[links]]` in Markdown blocks
+   * are still to be rewritten: at once when nobody holds the lock, else when
+   * the turn or the outside agent's lock ends — before its commit.
+   */
+  private linkRenames: [string, string][] = [];
 
   private watcher: FSWatcher | null = null;
+  /** The files/ folder's listing, as tabs last heard it. */
+  private refFiles: ReferenceFile[] = [];
+  private refFilesKey = "[]";
+  private refTimer: NodeJS.Timeout | null = null;
   private fsTimers = new Map<string, NodeJS.Timeout>();
   private autosaveTimer: NodeJS.Timeout | null = null;
   private closeTimer: NodeJS.Timeout | null = null;
@@ -242,6 +270,8 @@ export class ProjectRuntime {
     this.dir = deps.store.dir(deps.slug);
     this.thinkDir = deps.store.thinkDir(deps.slug);
     this.room = new GuestRoom(this.thinkDir);
+    this.questions = new QuestionDesk(deps.askWaitMs ?? ASK_WAIT_MS, (entry) => this.updateEntry(entry, true));
+    this.pdfText = new PdfTextStore(this.dir, this.thinkDir, deps.log);
   }
 
   private get log(): Logger {
@@ -266,6 +296,8 @@ export class ProjectRuntime {
     this.state = await this.deps.store.readState(this.slug);
     this.chat = new ChatLog(path.join(this.thinkDir, "chat.jsonl"));
     await this.chat.load();
+    // Questions left unanswered when the server stopped: their turn is over.
+    for (const e of this.chat.all()) if (e.kind === "question" && !e.outcome) await this.chat.put({ ...e, outcome: "cancelled" });
     await this.room.load();
     this.mermaidLastValid = await readJson(path.join(this.thinkDir, "mermaid-last-valid.json"), {});
     this.lastValid = await readJson(path.join(this.thinkDir, "canvas-last-valid.json"), emptyCanvas());
@@ -276,6 +308,7 @@ export class ProjectRuntime {
     await this.readReadme();
     this.lastTurn = await readLastTurn(path.join(this.thinkDir, "turns.jsonl"));
     await this.scanFiles();
+    await this.syncReferenceFiles();
     await this.syncCanvasFile({ initial: true });
 
     if (this.state.turnInProgress) await this.recoverInterruptedTurn();
@@ -434,6 +467,9 @@ export class ProjectRuntime {
     for (const t of this.mermaidTimers.values()) clearTimeout(t);
     await this.watcher?.close();
     this.watcher = null;
+    if (this.refTimer) clearTimeout(this.refTimer);
+    this.refTimer = null;
+    await this.pdfText.idle();
     await this.agentRequests?.stop();
     this.agentRequests = null;
     this.finalizeStreaming();
@@ -445,6 +481,7 @@ export class ProjectRuntime {
       this.log.warn("server shutting down during an agent turn");
     }
     for (const p of this.pendingPermissions.values()) p.resolve(null);
+    await this.questions.cancelAll();
     await this.agent?.stop();
     this.agent = null;
   }
@@ -484,6 +521,7 @@ export class ProjectRuntime {
       comments: this.shownComments(),
       guests: this.room.info(this.guest?.by ?? null),
       guestThreads: this.room.threads(),
+      files: this.refFiles,
     };
   }
 
@@ -558,7 +596,7 @@ export class ProjectRuntime {
     };
     if (isTextType(parsed.type)) {
       entry.content = buf.length > MAX_TEXT_BYTES ? `(This file is ${(buf.length / 1048576).toFixed(1)} MB — too large to show on the canvas.)` : buf.toString("utf8");
-    } else {
+    } else if (parsed.type === "image") {
       try {
         const dim = imageSize(buf);
         if (dim.width && dim.height) entry.natural = { width: dim.width, height: dim.height };
@@ -602,6 +640,7 @@ export class ProjectRuntime {
       if (this.blocks.get(name)?.file !== next.get(name)?.file) changed.add(name);
     }
     this.blocks = next;
+    this.pdfText.sync(new Map([...next.values()].filter((f) => f.type === "pdf").map((f) => [f.file, f.hash])));
     if (conflicts.join("\n") !== this.conflicts.join("\n")) {
       this.conflicts = conflicts;
       this.broadcast({ type: "conflicts.changed", conflicts });
@@ -621,18 +660,21 @@ export class ProjectRuntime {
 
   private startWatcher(): void {
     const dir = this.dir;
+    const inFiles = (rel: string) => rel === FILES_DIR || rel.startsWith(FILES_DIR + path.sep);
     this.watcher = chokidar.watch(dir, {
       ignoreInitial: true,
-      depth: 0,
-      // Top-level files only; nothing hidden (.git, .think, .annotations, …).
+      depth: 9,
+      // Top-level files, and the files/ folder; nothing hidden (.git, .think, .annotations, …).
       ignored: (p: string) => {
         const rel = path.relative(dir, p);
         if (!rel) return false;
+        if (inFiles(rel)) return rel.split(path.sep).some((s) => s.startsWith("."));
         return rel.includes(path.sep) || rel.startsWith(".");
       },
       awaitWriteFinish: { stabilityThreshold: 120, pollInterval: 30 },
     });
     this.watcher.on("all", (event, p) => {
+      if (inFiles(path.relative(dir, p))) return this.scheduleReferenceSync();
       if (event === "addDir" || event === "unlinkDir") return;
       const file = path.basename(p);
       const prev = this.fsTimers.get(file);
@@ -646,6 +688,88 @@ export class ProjectRuntime {
       );
     });
     this.watcher.on("error", (err) => this.log.error("watcher error", { error: errorMessage(err) }));
+  }
+
+  // ================================================================== files/ (reference material)
+
+  /** Re-list files/ and tell the tabs when the listing changed. */
+  private async syncReferenceFiles(): Promise<void> {
+    const files = await listReferenceFiles(this.dir);
+    const key = JSON.stringify(files);
+    if (key === this.refFilesKey) return;
+    this.refFiles = files;
+    this.refFilesKey = key;
+    this.broadcast({ type: "files.changed", files });
+  }
+
+  /** A change under files/ seen by the watcher: one re-list for a burst of them. */
+  private scheduleReferenceSync(): void {
+    if (this.refTimer) clearTimeout(this.refTimer);
+    this.refTimer = setTimeout(() => {
+      this.refTimer = null;
+      void this.queue
+        .run(async () => {
+          if (this.closed) return;
+          if (this.guest) this.touchGuest();
+          const before = this.refFilesKey;
+          await this.syncReferenceFiles();
+          if (before !== this.refFilesKey && !this.lock.locked) this.scheduleAutosave();
+        })
+        .catch((err) => this.log.error("files/ sync failed", { error: errorMessage(err) }));
+    }, 80);
+  }
+
+  /** The user's own change to files/: the tabs hear at once, History at the next save. */
+  private async referenceChanged(): Promise<void> {
+    await this.syncReferenceFiles();
+    this.scheduleAutosave();
+  }
+
+  /**
+   * Put an uploaded file in files/ at `rel`. An existing file keeps its name:
+   * the upload becomes "name (2).ext" unless `replace` is set.
+   */
+  putReferenceFile(rel: string, data: Buffer, opts: { replace?: boolean } = {}): Promise<{ path: string }> {
+    return this.queue.run(async () => {
+      this.assertUnlocked();
+      if (data.length > MAX_REFERENCE_FILE_BYTES) throw new UserError(`Files can be up to ${MAX_REFERENCE_FILE_BYTES / 1048576} MB.`);
+      const target = opts.replace ? cleanFilePath(rel) : await freeFilePath(this.dir, rel);
+      const { full, kind } = await resolveFilePath(this.dir, target);
+      if (kind === "dir" || kind === "other") throw new UserError(`"${target}" is a folder, not a file.`);
+      await fs.mkdir(path.dirname(full), { recursive: true });
+      await writeAtomic(full, data, this.thinkDir);
+      await this.referenceChanged();
+      return { path: target };
+    });
+  }
+
+  deleteReferenceFile(rel: string): Promise<void> {
+    return this.queue.run(async () => {
+      this.assertUnlocked();
+      const { full, kind } = await resolveFilePath(this.dir, rel);
+      if (kind !== "file") throw new UserError(kind === "missing" ? "That file is no longer there." : "Only files can be deleted here.");
+      await fs.rm(full);
+      await pruneEmptyDirs(this.dir, full);
+      await this.referenceChanged();
+    });
+  }
+
+  /** Rename or move a file within files/ (never over another one). */
+  moveReferenceFile(from: string, to: string): Promise<{ path: string }> {
+    return this.queue.run(async () => {
+      this.assertUnlocked();
+      const src = await resolveFilePath(this.dir, from);
+      if (src.kind !== "file") throw new UserError(src.kind === "missing" ? "That file is no longer there." : "Only files can be renamed here.");
+      const target = cleanFilePath(to);
+      if (target === cleanFilePath(from)) return { path: target };
+      const dst = await resolveFilePath(this.dir, target);
+      if (dst.kind !== "missing") throw new UserError(`There is already ${dst.kind === "dir" ? "a folder" : "a file"} called "${target}".`);
+      await fs.mkdir(path.dirname(dst.full), { recursive: true });
+      await fs.rename(src.full, dst.full);
+      await pruneEmptyDirs(this.dir, src.full);
+      await this.referenceChanged();
+      return { path: target };
+    });
   }
 
   /** Bring our view of one path up to date with the disk. Runs in the queue. */
@@ -717,6 +841,7 @@ export class ProjectRuntime {
     );
     for (const file of all) await this.syncPath(file);
     await this.syncCanvasFile();
+    await this.syncReferenceFiles();
   }
 
   private async syncCanvasFile(opts: { initial?: boolean } = {}): Promise<void> {
@@ -790,6 +915,38 @@ export class ProjectRuntime {
     if (opts.force || text !== before) {
       this.broadcast({ type: "canvas.changed", canvas: this.view, error: this.canvasError, clientId: opts.clientId });
     }
+    if (!this.lock.locked) await this.flushLinkRenames();
+  }
+
+  /**
+   * Point `[[links]]` in every Markdown block at the blocks' new names after
+   * renames — whoever renamed them (the user, `think rename`, an agent moving
+   * the file). Unlocked it happens at once; during a turn or an outside agent's
+   * lock it waits for the post-turn steps / the unlock, so it never writes
+   * under a working agent, and lands in the same commit as the rename.
+   * Callers hold the queue.
+   */
+  private async flushLinkRenames(): Promise<void> {
+    if (!this.linkRenames.length) return;
+    const renames = this.linkRenames;
+    this.linkRenames = [];
+    const changed: string[] = [];
+    for (const b of [...this.blocks.values()]) {
+      if (b.type !== "markdown" || b.content === undefined || b.size > MAX_TEXT_BYTES) continue;
+      const pin = this.pinned.get(b.name);
+      if (pin?.draft !== undefined) pin.draft = rewriteBlockLinks(pin.draft, renames);
+      const next = rewriteBlockLinks(b.content, renames);
+      if (next === b.content) continue;
+      b.content = next;
+      b.hash = hashOf(next);
+      b.size = Buffer.byteLength(next);
+      await this.writeBlockFile(b, next);
+      // A protected block's links are think's to keep, not a change by the agent.
+      if (pin && pin.file === b.file) pin.bytes = Buffer.from(next);
+      changed.push(b.name);
+      this.broadcast({ type: "file.changed", block: this.blockInfo(b), origin: "external" });
+    }
+    if (changed.length) this.log.info("links follow renamed blocks", { renames: renames.length, blocks: changed.length });
   }
 
   /**
@@ -838,6 +995,7 @@ export class ProjectRuntime {
       this.touched.set(to, t);
     }
     this.log.info("block renamed", { from, to });
+    this.linkRenames.push([from, to]);
     this.broadcast({ type: "block.renamed", from, to });
     void this.moveDrawing(from, to).catch((err) => this.log.warn("could not move a drawing along with its block", { from, to, error: errorMessage(err) }));
     if (this.comments.some((c) => c.on === from) || this.pendingComments.length) {
@@ -1199,6 +1357,8 @@ export class ProjectRuntime {
         return this.cancel();
       case "agent.permission":
         return this.answerPermission(msg.requestId, msg.optionId);
+      case "agent.answer":
+        return this.answerQuestions(msg.questionId, msg.answers);
       case "agent.restart":
         return this.restartAgent();
       case "agent.newSession":
@@ -1237,7 +1397,7 @@ export class ProjectRuntime {
     this.assertUnlocked();
     const b = this.blocks.get(name);
     if (!b) throw new UserError(`There is no block called "${name}".`);
-    if (!isTextType(b.type)) throw new UserError(`"${name}" is an image; it cannot be edited as text.`);
+    if (!isTextType(b.type)) throw new UserError(`"${name}" is ${b.type === "pdf" ? "a PDF" : "an image"}; it cannot be edited as text.`);
     if (typeof content !== "string") throw new UserError("Invalid content.");
     if (content === b.content) return { hash: b.hash };
     b.content = content;
@@ -1382,6 +1542,14 @@ export class ProjectRuntime {
           const e = canvas.edges.find((x) => x.id === op.id);
           if (!e) continue;
           const p = op.patch ?? {};
+          // Reattaching an end: the block must exist, and a connection never joins a block to itself.
+          const from = typeof p.fromNode === "string" ? p.fromNode : e.fromNode;
+          const to = typeof p.toNode === "string" ? p.toNode : e.toNode;
+          if (from !== e.fromNode || to !== e.toNode) {
+            if (!nodeById.has(from) || !nodeById.has(to) || from === to) throw new UserError("That connection is not valid.");
+            e.fromNode = from;
+            e.toNode = to;
+          }
           // null (e.g. from undo) removes the side: the connection picks the nearest.
           for (const k of ["fromSide", "toSide"] as const) {
             if (!(k in p)) continue;
@@ -1490,33 +1658,69 @@ export class ProjectRuntime {
   }
 
   /** The user renames a block: the file, its node and every connection follow. */
-  private async renameBlock(name: string, to: string): Promise<{ name: string }> {
+  private async renameBlock(name: string, to: string): Promise<{ name: string; title?: string }> {
     this.assertUnlocked();
     return this.renameBlockNow(name, to, "user");
   }
 
-  /** Rename a block now (the caller has checked who may). Callers hold the queue. */
-  private async renameBlockNow(name: string, to: string, origin: "user" | "agent" | "external"): Promise<{ name: string }> {
+  /**
+   * Rename a block now (the caller has checked who may). Callers hold the queue.
+   * `to` is a name (`tea-guide`: the file is renamed, any title cleared) or free
+   * text (`Tea guide 🍵`: kept as the title, and the file renamed to the text
+   * made a name — `tea-guide`, or `tea-guide-2` when that is taken).
+   */
+  private async renameBlockNow(name: string, to: string, origin: "user" | "agent" | "external"): Promise<{ name: string; title?: string }> {
     const b = this.blocks.get(name);
     if (!b) throw new UserError(`There is no block called "${name}".`);
-    if (typeof to !== "string" || !isValidName(to)) throw new UserError("Names use lowercase letters, digits and hyphens, like tea-flowchart.");
-    if (to === name) return { name };
-    if (this.takenNames().has(to)) throw new UserError(`There is already a block called “${displayName(to)}”.`);
-    if (this.view.nodes.some((n) => n.id === to)) throw new UserError(`“${to}” is already used by a group on this canvas.`);
-    const file = `${to}.${b.ext}`;
+    const target = typeof to === "string" ? renameTarget(to, name) : null;
+    if (!target) throw new UserError("Give the block a name.");
+    const text = cleanTitle(to)!;
+    const groups = new Set(this.view.nodes.filter((n) => n.type === "group").map((n) => n.id));
+    let next = target.name;
+    if (isValidName(text)) {
+      // A plain name, as before titles: it must be free.
+      if (next !== name && this.takenNames().has(next)) throw new UserError(`There is already a block called “${displayName(next)}”.`);
+      if (groups.has(next)) throw new UserError(`“${next}” is already used by a group on this canvas.`);
+    } else if (next !== name) {
+      const taken = new Set([...this.takenNames(), ...groups]);
+      taken.delete(name);
+      for (let i = 2, base = next; taken.has(next); i++) next = `${base}-${i}`;
+    }
+    const title = isValidName(text) || text === displayName(next) ? undefined : text;
+    if (next === name) {
+      this.lastValid = this.view;
+      this.setTitle(name, title);
+      await this.refreshView({ write: true, force: true });
+      this.scheduleAutosave();
+      return { name, ...(title ? { title } : {}) };
+    }
+    const file = `${next}.${b.ext}`;
     await fs.rename(path.join(this.dir, b.file), path.join(this.dir, file));
-    const entry: FileEntry = { ...b, name: to, file };
+    const entry: FileEntry = { ...b, name: next, file };
     this.files.delete(b.file);
     this.files.set(file, entry);
     this.recomputeBlocks();
-    this.lastValid = renameInCanvas(this.view, name, to, file);
-    this.canvasError = null;
-    this.movedName(name, to);
+    this.lastValid = renameInCanvas(this.view, name, next, file);
+    this.setTitle(next, title);
+    this.movedName(name, next);
     this.broadcast({ type: "file.changed", block: this.blockInfo(entry), origin });
     this.broadcast({ type: "file.deleted", name, file: b.file });
     await this.refreshView({ write: true, force: true });
     this.scheduleAutosave();
-    return { name: to };
+    return { name: next, ...(title ? { title } : {}) };
+  }
+
+  /** Set (or, with none, clear) a block's title in the layout we build on. */
+  private setTitle(name: string, title: string | undefined): void {
+    this.lastValid = {
+      ...this.lastValid,
+      nodes: this.lastValid.nodes.map((n) => {
+        if (n.id !== name || n.type !== "file") return n;
+        const { title: _old, ...rest } = n;
+        return title ? { ...rest, title } : rest;
+      }),
+    };
+    this.canvasError = null;
   }
 
   private takenNames(): Set<string> {
@@ -1563,30 +1767,33 @@ export class ProjectRuntime {
       const name = freeName(isValidName(it.from) ? it.from : "block", taken);
       let entry: FileEntry;
       let data: string | Buffer;
-      if (it.type === "image") {
+      if (!isTextType(it.type)) {
+        // A binary block (image, PDF): its file is copied from the canvas it came from.
         const src = it.image;
         const parsed = src && typeof src.file === "string" ? parseBlockFile(src.file) : null;
-        if (!src || !SLUG_RE.test(String(src.canvas)) || parsed?.type !== "image") continue;
+        if (!src || !SLUG_RE.test(String(src.canvas)) || parsed?.type !== it.type) continue;
         try {
           data = await fs.readFile(path.join(this.deps.store.dir(src.canvas), src.file));
         } catch {
           continue; // the original is gone
         }
         let natural: { width: number; height: number } | undefined;
-        try {
-          const dim = imageSize(data);
-          if (dim.width && dim.height) natural = { width: dim.width, height: dim.height };
-        } catch {
-          continue;
+        if (parsed.type === "image") {
+          try {
+            const dim = imageSize(data);
+            if (dim.width && dim.height) natural = { width: dim.width, height: dim.height };
+          } catch {
+            continue;
+          }
         }
-        entry = { name, file: `${name}.${parsed.ext}`, ext: parsed.ext, type: "image", hash: hashOf(data), size: data.length, natural, firstSeen: Date.now(), mtimeMs: Date.now() };
-        // Its drawing comes along, so the copy can be drawn on further.
+        entry = { name, file: `${name}.${parsed.ext}`, ext: parsed.ext, type: parsed.type, hash: hashOf(data), size: data.length, natural, firstSeen: Date.now(), mtimeMs: Date.now() };
+        // An image's drawing comes along, so the copy can be drawn on further.
         const srcSidecar = sidecarDir(this.deps.store.dir(src.canvas), parsed.name);
-        if (await exists(srcSidecar)) await fs.cp(srcSidecar, sidecarDir(this.dir, name), { recursive: true }).catch(() => {});
+        if (parsed.type === "image" && (await exists(srcSidecar))) await fs.cp(srcSidecar, sidecarDir(this.dir, name), { recursive: true }).catch(() => {});
       } else {
         const content = typeof it.content === "string" ? it.content : "";
         if (Buffer.byteLength(content) > MAX_TEXT_BYTES) throw new UserError(`“${displayName(it.from)}” is too large to paste.`);
-        const ext = TYPE_EXTENSION[it.type as Exclude<BlockType, "image">];
+        const ext = TYPE_EXTENSION[it.type as TextType];
         data = content;
         entry = { name, file: `${name}.${ext}`, ext, type: it.type, hash: hashOf(content), size: Buffer.byteLength(content), content, firstSeen: Date.now(), mtimeMs: Date.now() };
       }
@@ -1681,6 +1888,28 @@ export class ProjectRuntime {
       await this.addBlock(entry, data, opts.x ?? 0, opts.y ?? 0);
       return { name };
     });
+  }
+
+  /** PDF upload: a new PDF block. */
+  async putPdf(data: Buffer, opts: { x?: number; y?: number }): Promise<{ name: string }> {
+    if (data.length > MAX_PDF_BYTES) throw new UserError(`That PDF is too large (${(data.length / 1048576).toFixed(1)} MB); the limit is ${MAX_PDF_BYTES / 1048576} MB.`);
+    if (!looksLikePdf(data)) throw new UserError("That file is not a PDF.");
+    return this.queue.run(async () => {
+      this.assertUnlocked();
+      const name = allocateName(this.deps.config.namePool(), this.takenNames());
+      const entry: FileEntry = { name, file: `${name}.pdf`, ext: "pdf", type: "pdf", hash: hashOf(data), size: data.length, firstSeen: Date.now(), mtimeMs: Date.now() };
+      await this.addBlock(entry, data, opts.x ?? 0, opts.y ?? 0);
+      return { name };
+    });
+  }
+
+  /** An upload (POST …/images): a PDF becomes a PDF block, anything else must be an image. */
+  async putUpload(data: Buffer, mime: string, opts: { x?: number; y?: number; replace?: string }): Promise<{ name: string }> {
+    if (mime === PDF_MIME || (!mime.startsWith("image/") && looksLikePdf(data))) {
+      if (opts.replace) throw new UserError("A PDF cannot replace an image.");
+      return this.putPdf(data, opts);
+    }
+    return this.putImage(data, mime, opts);
   }
 
   private async addBlock(entry: FileEntry, data: string | Buffer, x: number, y: number): Promise<void> {
@@ -1903,6 +2132,7 @@ export class ProjectRuntime {
           permission: (req) => this.onPermission(req),
           crashed: (message) => {
             if (this.agent === agent) this.agent = null;
+            void this.questions.cancelAll();
             // Between turns this is usually think being updated or restarted (the
             // agents' container goes down with it): nothing was lost, so no alarm.
             if (this.turnRunning) void this.addSystem("error", "The agent process stopped unexpectedly. It will be restarted with your next message.", message);
@@ -2096,6 +2326,10 @@ export class ProjectRuntime {
 
   private appendStream(kind: "agent" | "thought", text: string): void {
     if (!text) return;
+    // Claude Code's adapter sends a local command's output (/context, /cost…)
+    // twice: streamed, then again whole as the turn's result. A chunk that
+    // repeats the entire message so far is that echo, not new text.
+    if (this.streaming?.kind === kind && this.streaming.text.trim().length > 40 && text.trim() === this.streaming.text.trim()) return;
     if (!this.streaming || this.streaming.kind !== kind) {
       this.finalizeStreaming();
       this.streaming = { id: newId(kind === "agent" ? "a-" : "t-"), kind, text: "", ts: Date.now() };
@@ -2216,6 +2450,45 @@ export class ProjectRuntime {
     p.resolve(optionId);
   }
 
+  /** `think ask` from the canvas agent: show the questions, wait for the answer (or --wait for earlier ones). */
+  private async ask(req: CommandRequest): Promise<AskReply> {
+    if (!this.turnRunning) return { ok: false, message: "think ask works only during your turn." };
+    const wait = req.opts.wait;
+    if (typeof wait === "string") {
+      return this.questions.wait(wait, (id) => {
+        const e = this.chat.get(id);
+        return e?.kind === "question" ? e : undefined;
+      });
+    }
+    let questions;
+    try {
+      questions = parseAskSpec(req.args[0] ?? "");
+    } catch (err) {
+      if (err instanceof OpError) return { ok: false, message: err.message };
+      throw err;
+    }
+    this.finalizeStreaming();
+    const entry: QuestionEntry = { kind: "question", id: newId("q-"), ts: Date.now(), questions };
+    this.questions.open(entry);
+    await this.addEntry(entry);
+    return this.questions.wait(entry.id, () => undefined);
+  }
+
+  /** The user's answer to a question card (null: skipped). */
+  private async answerQuestions(id: string, answers: unknown): Promise<void> {
+    if (typeof id !== "string" || !this.questions.isPending(id)) throw new UserError("Those questions are no longer waiting for an answer.");
+    const entry = this.chat.get(id);
+    if (entry?.kind !== "question") throw new UserError("Those questions are no longer waiting for an answer.");
+    if (answers === null) return this.questions.resolve(id, "skipped");
+    let checked;
+    try {
+      checked = checkAnswers(entry.questions, answers);
+    } catch (err) {
+      throw new UserError(errorMessage(err));
+    }
+    await this.questions.resolve(id, "answered", checked);
+  }
+
   // ---------------------------------------------------------------- turns
 
   private setLock(locked: boolean, guest?: { by: string; note: string }): void {
@@ -2308,6 +2581,7 @@ export class ProjectRuntime {
     if (g.timer) clearTimeout(g.timer);
     await this.rescanAll();
     await this.refreshView({ write: true, force: true });
+    await this.flushLinkRenames();
     const given = summary?.trim() || this.guestSummaries.get(g.by);
     this.guestSummaries.delete(g.by);
     const done = await commitWork(this.dir, {
@@ -2500,8 +2774,9 @@ export class ProjectRuntime {
         this.highlight(touched, by);
       },
       rename: async (name, to) => {
-        await this.renameBlockNow(name, to, origin);
-        this.highlight([to], by);
+        const r = await this.renameBlockNow(name, to, origin);
+        this.highlight([r.name], by);
+        return r;
       },
       remove: async (names) => {
         await this.deleteBlocksNow(names, origin);
@@ -2516,7 +2791,7 @@ export class ProjectRuntime {
   }
 
   /** A request from the canvas agent's `think` command (this canvas's .think/cli/). */
-  private async agentRequest(raw: unknown): Promise<{ ok: boolean; message: string }> {
+  private async agentRequest(raw: unknown): Promise<AskReply> {
     const req = toCommandRequest(raw);
     if (!req) return { ok: false, message: "That request is not one the think command sends (is it up to date?)." };
     if (GUEST_ONLY_COMMANDS.has(req.op)) {
@@ -2526,6 +2801,7 @@ export class ProjectRuntime {
       };
     }
     if (req.op === "status") return { ok: true, message: this.guestStatus() };
+    if (req.op === "ask") return this.ask(req);
     return this.command({ kind: "agent" }, req);
   }
 
@@ -2568,6 +2844,7 @@ export class ProjectRuntime {
     if (!this.turnRunning) return;
     this.cancelRequested = true;
     for (const p of [...this.pendingPermissions.values()]) p.resolve(null);
+    void this.questions.cancelAll();
     this.agent?.cancel();
   }
 
@@ -2609,6 +2886,9 @@ export class ProjectRuntime {
           });
       await this.addEntry({ kind: "user", id: newId("u-"), ts: Date.now(), text, injected: before || after ? { before, after } : undefined });
 
+      // A PDF added just before: its text (.think/text/) is ready before the agent looks.
+      await this.pdfText.idle();
+
       // 5. Run the turn.
       let stop: acp.StopReason = await this.sendPrompt([before, text, after]);
       let attempt = 0;
@@ -2620,6 +2900,7 @@ export class ProjectRuntime {
           await this.rescanAll();
           const found = await this.enforceProtected();
           await this.refreshView({ write: true });
+          await this.flushLinkRenames();
           await this.commitAgentWork(attempt);
           return found;
         });
@@ -2672,6 +2953,7 @@ export class ProjectRuntime {
       await this.queue
         .run(async () => {
           await this.rescanAll();
+          await this.flushLinkRenames();
           await this.commitAgentWork(0);
         })
         .catch(() => {});
@@ -2682,6 +2964,7 @@ export class ProjectRuntime {
           await this.rescanAll();
           await this.enforceProtected();
           await this.refreshView({ write: true, force: true });
+          await this.flushLinkRenames();
           await this.commitAgentWork(0);
           await this.syncThinkFile({ repair: true });
           const end = await head(this.dir);
@@ -2698,6 +2981,7 @@ export class ProjectRuntime {
         })
         .catch((err) => this.log.error("post-turn steps failed", { error: errorMessage(err) }));
       for (const p of [...this.pendingPermissions.values()]) p.resolve(null);
+      await this.questions.cancelAll();
       this.turnRunning = false;
       this.cancelRequested = false;
       this.broadcast({ type: "agent.turn", running: false });
@@ -2886,6 +3170,14 @@ export class ProjectRuntime {
       const error = await this.deps.mermaid.validate(source);
       if (error) issues.push({ block: parsed.name, file, message: error });
     }
+    for (const file of changed) {
+      const parsed = parseBlockFile(file);
+      if (parsed?.type !== "markdown" || this.blocks.get(parsed.name)?.file !== file) continue;
+      // Only links the turn wrote: a dangling one that was there before is the user's.
+      const before = sinceHead ? ((await showFile(this.dir, sinceHead, file).catch(() => null))?.toString("utf8") ?? "") : "";
+      const message = this.danglingLinks(this.blocks.get(parsed.name)!.content ?? "", new Set(findBlockLinks(before).map((l) => l.target)));
+      if (message) issues.push({ block: parsed.name, file, message });
+    }
     let text: string | null = null;
     try {
       text = await fs.readFile(path.join(this.dir, "canvas.json"), "utf8");
@@ -2911,30 +3203,44 @@ export class ProjectRuntime {
     return issues;
   }
 
+  /** `[[links]]` in a Markdown block that lead to no block (but those in `known`), described for the agent; null: none. */
+  private danglingLinks(md: string, known: ReadonlySet<string>): string | null {
+    const missing = [...new Set(findBlockLinks(md).map((l) => l.target))].filter((t) => !this.blocks.has(t) && !known.has(t));
+    if (!missing.length) return null;
+    const labels = new Map<string, string>();
+    for (const n of this.view.nodes) if (n.type === "file") labels.set(blockLabel(n.id, n).toLowerCase(), n.id);
+    const hint = (t: string) => {
+      const name = labels.get(t.toLowerCase()) ?? (this.blocks.has(t.replace(/\.[a-z]+$/i, "")) ? t.replace(/\.[a-z]+$/i, "") : undefined);
+      return name ? ` (did you mean [[${name}]]?)` : "";
+    };
+    return `links to blocks that do not exist: ${missing.map((t) => `[[${t}]]${hint(t)}`).join(", ")} — a link names a block by its file name without the extension, never its title; fix the link or remove the brackets.`;
+  }
+
   /**
    * Files the turn left where they do not belong: the top level holds blocks,
-   * canvas.json and README.md only; scratch work goes in work/.
+   * canvas.json and README.md only; scratch work goes in work/, reference
+   * files (and exports that are not blocks) in files/.
    */
   private async strayFiles(changed: Set<string>): Promise<ValidationIssue[]> {
     const issues: ValidationIssue[] = [];
     const allowed = new Set(["canvas.json", "README.md", THINK_FILE, COMMENTS_FILE, "AGENTS.md", "CLAUDE.md", ".gitignore"]);
     const seenDirs = new Set<string>();
     for (const f of changed) {
-      if (f.startsWith(".") || f.startsWith("work/") || allowed.has(f) || parseBlockFile(f)) continue;
+      if (f.startsWith(".") || f.startsWith("work/") || f.startsWith(`${FILES_DIR}/`) || allowed.has(f) || parseBlockFile(f)) continue;
       if (!(await exists(path.join(this.dir, f)))) continue; // deleted in the turn
       if (f.includes("/")) {
         const top = f.split("/")[0];
         if (seenDirs.has(top)) continue;
         seenDirs.add(top);
-        issues.push({ file: `${top}/`, message: `folder "${top}/" is not part of the canvas; keep scratch work in work/ (move it there, or delete it).` });
+        issues.push({ file: `${top}/`, message: `folder "${top}/" is not part of the canvas; keep scratch work in work/ and files that are not blocks (exports, data) in files/ (move it, or delete it).` });
         continue;
       }
-      const m = /^(.+)\.(md|mmd|html|png|jpe?g|webp|gif)$/i.exec(f);
+      const m = /^(.+)\.(md|mmd|html|png|jpe?g|webp|gif|pdf)$/i.exec(f);
       issues.push({
         file: f,
         message: m
           ? `"${f}" does not show on the canvas: block names are lowercase letters, digits and hyphens. Rename it (e.g. "${toSlug(m[1])}.${m[2].toLowerCase()}") or move it into work/.`
-          : `"${f}" is not a block; the top level holds only blocks, canvas.json and README.md. Move it into work/ (or delete it).`,
+          : `"${f}" is not a block; the top level holds only blocks, canvas.json and README.md. Move it into work/ (scratch) or files/ (a file for the user), or delete it.`,
       });
     }
     return issues;

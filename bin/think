@@ -1,6 +1,6 @@
 #!/bin/sh
 # think — the commands agents use to work on a think canvas. A canvas is a
-# folder of block files (Markdown, Mermaid, HTML, images) shown as a board:
+# folder of block files (Markdown, Mermaid, HTML, images, PDFs) shown as a board:
 # agents edit those files directly, and use this command for everything else
 # about the canvas — layout, frames, links, views, comments, pointing at
 # blocks, and (for agents from outside the app) joining, the lock and their
@@ -56,7 +56,7 @@ canvas_dir() {
 overview() {
   cat <<'EOF'
 think — work on a think canvas: a folder of block files (.md, .mmd, .html,
-images) that people see as a board. Edit the block files directly, like any
+images, PDFs) that people see as a board. Edit the block files directly, like any
 file; use these commands for everything else about the canvas. The canvas's
 AGENTS.md explains how a canvas works — read it before you change anything.
 
@@ -66,10 +66,11 @@ The canvas
                                        put a block file you wrote on the canvas
   think move <block|frame> (--near B [--side S] | --at X,Y | --by DX,DY | --in FRAME) [--size WxH]
   think link <from> <to> [--label "…"] [--style solid|dashed|dotted] [--arrow end|both|none]
+            [--from-side top|right|bottom|left] [--to-side top|right|bottom|left]
   think unlink <a> <b>
   think frame "Label" <block…>         draw a frame around blocks (or grow one to hold them)
   think unframe "Label"                remove a frame; its blocks stay
-  think rename <block> <new-name>      the file, its place, links and comments follow
+  think rename <block> "<Title>"       retitle; the file, place, links and [[links]] follow
   think remove <block…>                delete blocks (History keeps them)
   think view add "Name" <block|frame…> · think view remove "Name"
   think comments [--open] [--json]     the user's comments
@@ -82,6 +83,9 @@ EOF
 
 You are this canvas's own agent: these work during your turn, think commits
 your work when the turn ends (don't run git), and you answer in your chat.
+
+  think ask < questions.json           ask the user in your chat; waits for the answers
+                                       (think ask --wait <id> keeps waiting)
 EOF
   else
     cat <<'EOF'
@@ -141,10 +145,13 @@ EOF
     ;;
     link) cat <<'EOF'
 think link <from> <to> [--label "…"] [--style solid|dashed|dotted] [--arrow end|both|none]
+            [--from-side top|right|bottom|left] [--to-side top|right|bottom|left]
   Connect two blocks (or frames) with an arrow from → to — or change the
   link they already have. Dashed reads as "maybe" or "later", dotted as a
   loose association. --arrow both puts heads on both ends, none on neither.
-  --label "" removes a label.
+  --label "" removes a label. --from-side / --to-side choose the edge of each
+  block the arrow leaves from and arrives at (default: the canvas picks
+  them); on an existing link they change just that side.
 EOF
     ;;
     unlink) cat <<'EOF'
@@ -166,10 +173,14 @@ think unframe "Label"
 EOF
     ;;
     rename) cat <<'EOF'
+think rename <block> "<Title>"
 think rename <block> <new-name>
-  Rename a block: the file (keeping its type), its place, its links, its
-  comments and its drawing follow. Names are lowercase letters, digits and
-  hyphens. Only rename when the user asks.
+  Rename a block. Free text ("Budget 2027 💶": any characters, one line, up to
+  120) becomes its title, shown as its name; its file is renamed to the text
+  made a name (budget-2027.md, or budget-2027-2.md when that is taken). A plain
+  name (budget) renames the file and clears any title. The file keeps its type;
+  its place, links, comments and drawing follow, and so do the [[budget]] links
+  to it in Markdown blocks. Only rename when the user asks.
 EOF
     ;;
     remove) cat <<'EOF'
@@ -259,6 +270,30 @@ think leave ["summary"] --as <you>
   closes. Join again any time — the tab comes back with its history.
 EOF
     ;;
+    ask) cat <<'EOF'
+think ask < questions.json          (or: echo '{"questions":[…]}' | think ask)
+think ask --wait <id>
+  The canvas's own agent only, during its turn. Ask the user questions in
+  your chat and wait for the answers — for decisions that are genuinely
+  theirs; batch them into one call. The questions come as JSON on stdin:
+    {"questions":[{"question":"Which layout fits best?","header":"Layout",
+       "multiSelect":false,
+       "options":[{"label":"Timeline","description":"one row per month"},
+                  {"label":"Mind map"}]}]}
+  1–4 questions, each with 2–4 options (a label, an optional description).
+  "header" is a short chip (12 characters at most); "multiSelect": true lets
+  the user pick several. The user can always type an answer of their own
+  ("Other" — don't list it) or skip. The answers, one line per question:
+    Which layout fits best? → Timeline
+    Which sections? → Goals, Risks, Other: a budget section
+  or: The user skipped these questions.
+  It waits up to 100 s. If the user has not answered by then it prints
+  "Still waiting for the user's answer. Run: think ask --wait <id>" and exits
+  with code 3: run that to wait for the same questions again. If the user
+  stops the turn the questions are cancelled (exit code 1). If your shell tool
+  has a timeout, give this command at least 2 minutes.
+EOF
+    ;;
     status) echo "think status [<canvas>] — open in how many tabs, the agent's state, who holds the lock, which outside agents are on it." ;;
     url) echo "think url <canvas> — the link to open the canvas in think (give it to your user)." ;;
     path) echo "think path <canvas> — the canvas folder: edit the block files there." ;;
@@ -286,6 +321,8 @@ request() {
     [ -d "$dir" ] || die "$dir does not exist — is think installed here and has it started once?"
   fi
   id="$(date +%s)-$$-$(od -An -N4 -tx4 /dev/urandom | tr -d ' \n')"
+  wait_s=${REQ_WAIT:-15}
+  deadline=$(($(date +%s) + wait_s))
   tmp="$dir/.req-$id.tmp"
   printf '{%s}\n' "$1" > "$tmp"
   mv "$tmp" "$dir/req-$id.json"
@@ -293,16 +330,18 @@ request() {
   i=0
   while [ ! -f "$res" ]; do
     i=$((i + 1))
-    if [ "$i" -gt 150 ]; then
+    if [ $((i % 10)) -eq 0 ] && [ "$(date +%s)" -gt "$deadline" ]; then
       rm -f "$dir/req-$id.json"
-      die "no answer from the think server after 15 s — is it running?"
+      die "no answer from the think server after $wait_s s — is it running?"
     fi
     sleep 0.1
   done
   status=$(head -n 1 "$res")
-  if [ "$status" = ok ]; then
+  if [ "$status" = ok ] || [ "$status" = pending ]; then
     tail -n +2 "$res"
     rm -f "$res"
+    # pending: not answered yet (think ask) — the message says how to wait on.
+    [ "$status" = ok ] || return 3
     return 0
   fi
   # A refusal (the canvas is busy, no such block…): on stderr, like any error.
@@ -335,6 +374,7 @@ N=20
 INSTALL=""
 INSTALL_DIR=""
 HELP=""
+WAIT=""
 OPTS=""
 add_opt() { OPTS="${OPTS:+$OPTS,}\"$1\":$2"; }
 n=$#
@@ -343,7 +383,7 @@ while [ "$n" -gt 0 ]; do
   shift
   n=$((n - 1))
   case "$a" in
-    --as | --canvas | -c | -n | --near | --side | --at | --by | --size | --in | --label | --style | --arrow | --about)
+    --as | --canvas | -c | -n | --near | --side | --at | --by | --size | --in | --label | --style | --arrow | --from-side | --to-side | --about | --wait)
       [ "$n" -gt 0 ] || die "$a needs a value (think help)"
       v=$1
       shift
@@ -352,12 +392,14 @@ while [ "$n" -gt 0 ]; do
         --as) AS=$v ;;
         --canvas | -c) CANVAS=$v ;;
         -n) N=$v ;;
+        --wait) WAIT=$v ;;
         *) add_opt "${a#--}" "\"$(json "$v")\"" ;;
       esac
       ;;
     --as=*) AS=${a#--as=} ;;
+    --wait=*) WAIT=${a#--wait=} ;;
     --canvas=*) CANVAS=${a#--canvas=} ;;
-    --near=* | --side=* | --at=* | --by=* | --size=* | --in=* | --label=* | --style=* | --arrow=* | --about=*)
+    --near=* | --side=* | --at=* | --by=* | --size=* | --in=* | --label=* | --style=* | --arrow=* | --from-side=* | --to-side=* | --about=*)
       k=${a%%=*}
       add_opt "${k#--}" "\"$(json "${a#*=}")\""
       ;;
@@ -396,6 +438,23 @@ case "$cmd" in
     if [ "$ROLE" = guest ]; then need_as; fi
     send "$cmd" "$CANVAS" "$@" || exit 1
     exit 0
+    ;;
+  ask)
+    [ "$ROLE" = agent ] || die "think ask is only for a canvas's own agent (it asks in the canvas chat). Ask your user wherever you usually talk to them."
+    # The server answers within 100 s (the answer, or "still waiting"): stay under shell-tool timeouts.
+    REQ_WAIT=110
+    rc=0
+    if [ -n "$WAIT" ]; then
+      [ $# -eq 0 ] || die "think ask --wait <id> takes no other words (think help ask)"
+      add_opt wait "\"$(json "$WAIT")\""
+      send ask "" || rc=$?
+      exit "$rc"
+    fi
+    [ $# -eq 0 ] || die "think ask reads its questions as JSON on stdin, not as words (think help ask)"
+    if [ -t 0 ]; then die "think ask reads its questions as JSON on stdin: echo '{\"questions\":[…]}' | think ask (think help ask)"; fi
+    spec=$(cat)
+    send ask "" "$spec" || rc=$?
+    exit "$rc"
     ;;
 esac
 

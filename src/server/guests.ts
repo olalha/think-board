@@ -69,6 +69,9 @@ export class GuestBridge {
     if (!req || typeof req.op !== "string") return { ok: false, message: "That request is not one the think command sends (is it up to date?)." };
     const as = typeof req.as === "string" ? req.as.trim() : "";
     if (req.op === "ping") return { ok: true, message: "think is running." };
+    if (req.op === "ask") {
+      return { ok: false, message: "think ask is only for a canvas's own agent (it asks in the canvas chat). Ask your user wherever you usually talk to them." };
+    }
     if (!ANONYMOUS.has(req.op) || as) {
       const problem = guestNameProblem(as);
       if (problem) return { ok: false, message: problem };

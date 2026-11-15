@@ -46,11 +46,13 @@ and run `think read` (what is where).
 | `canvas.json` | The layout: where blocks are, links, frames, saved views. Change it with think commands. |
 | `comments.json` | The user's comments (`think comments`). |
 | `think.json` | The canvas's name and settings, managed by the app. Leave it alone. |
-| `work/` | Scratch space: notes, downloads, scripts, data. Never shown on the canvas. |
+| `files/` | The user's reference files (spreadsheets, documents, data), shown in the app's Files tab. Read them when relevant. Put files for the user that aren't blocks here (exports, data). |
+| `work/` | Your scratch space: notes, downloads, scripts. Never shown to the user. |
 
 Anything else at the top level is flagged. Never touch `.think/` (the app's
-private state) or `.drawings/` (drawings on images — see below), and do not
-edit `{{instructions_file}}`: the app regenerates it.
+private state; reading the PDF text in `.think/text/` is fine) or `.drawings/`
+(drawings on images — see below), and do not edit `{{instructions_file}}`: the
+app regenerates it.
 
 ## Blocks
 
@@ -65,6 +67,7 @@ create `tea-flowchart.md` next to `tea-flowchart.mmd`.
 | `.mmd` | Mermaid | Mermaid source only, no ```` ``` ```` fences. Must parse, or the block shows an error. Prefer top-to-bottom layouts (`flowchart TD`); wide diagrams render small. |
 | `.html` | HTML | One **self-contained** file: CSS and JS inline, no external files, no network requests. It runs in a sandboxed iframe. **Make it look right in light and dark:** declare `color-scheme: light dark`, keep colours in CSS variables, and set the dark ones under `@media (prefers-color-scheme: dark)` — the app answers that with its own theme setting. |
 | `.png` `.jpg` `.jpeg` `.webp` `.gif` | Image | Usually added by the user. You can read them. |
+| `.pdf` | PDF | Added by the user, or a `.pdf` file you place here (you can't write one as a block). Read it directly if you can, or its extracted text in `.think/text/<name>.pdf.txt`. |
 
 - **A new block:** give it a short, descriptive name of one to four words —
   `tea-flowchart`, `trip-ideas`, `open-questions` — so the user can find it
@@ -72,8 +75,14 @@ create `tea-flowchart.md` next to `tea-flowchart.mmd`.
   the file, then place it next to the block it relates to:
   `think add <file> --near <block>`. (A file you don't place is put next to the
   block worked on last — fine, but a deliberate place is better.)
-- **Renaming** (only when asked): `think rename <block> <new-name>` — the file,
-  its place, links and comments follow.
+- **Titles:** a block can show a free-text title instead of its name (any
+  characters, emoji too): `think rename <block> "Budget 2027 💶"` sets it and
+  renames the file to match (`budget-2027.md`). `think read` lists titles.
+  Rename only when asked; the file, its place, links and comments follow.
+- **Linking to another block** in Markdown: `[[block-name]]` (the file name
+  without the extension), or `[[block-name|text shown]]` — never the title.
+  think keeps these links pointing at the right block when blocks are renamed;
+  a link to a block that does not exist is reported back to you.
 - **Deleting** (only when asked): `think remove <block>`.
 
 ## The layout
@@ -81,7 +90,8 @@ create `tea-flowchart.md` next to `tea-flowchart.mmd`.
 - Place new blocks next to what they relate to, and **link** them when the
   relationship means something: `think link <from> <to>`, with a `--label`
   when it helps; `--style dashed` reads as “maybe” or “later”, `dotted` as a
-  loose association.
+  loose association. `--from-side` / `--to-side` (`top|right|bottom|left`)
+  pick the edges the arrow leaves and arrives at.
 - Sensible sizes: Markdown 360×260, Mermaid 420×300, HTML 480×360 (`--size`).
   Leave room between blocks; positions snap to a {{grid_size}} px grid.
 - **Frames** (labelled areas) organise a growing canvas: `think frame "Label"
@@ -146,6 +156,12 @@ the canvas is for.
 - After each turn think checks Mermaid blocks, the layout, protected blocks and
   stray files; problems come back to you in a follow-up message to fix.
 - `think join`, `lock`, `say` and `leave` are for outside agents, not for you.
+- **Asking the user:** `think ask` shows questions with options in your chat
+  and waits for the answers (`think help ask`). Use it only for decisions that
+  are genuinely the user's and that change what you do next — not for what you
+  can decide or find out yourself, and not to confirm routine steps. Put
+  everything you need to know into one call (up to 4 questions), then carry on
+  with the answers.
 
 ### An agent from outside the app
 

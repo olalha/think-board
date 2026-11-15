@@ -13,7 +13,7 @@ A fresh install opens with the canvas **Welcome to think** (from
 
 ```
 browser ──WebSocket/HTTP──▶ Fastify server ──▶ ProjectManager ──▶ ProjectRuntime (one per open canvas)
-                                                                   ├─ chokidar watcher (top-level files only)
+                                                                   ├─ chokidar watcher (top-level files, and files/)
                                                                    ├─ canvas model: parse · lint · reconcile
                                                                    ├─ git (plain CLI)
                                                                    ├─ MermaidValidator (jsdom worker thread)
@@ -35,20 +35,24 @@ outside agents ─ bin/think ── files in ROOT/guests/ ──▶ GuestBridge 
 | `src/server/migrations.ts` | canvas format upgrades, run on open, committed as the app |
 | `src/server/comments.ts` | `comments.json`: comments on blocks, frames and the canvas |
 | `src/shared/drawing.ts`, `src/server/drawings.ts` | drawings on images: the model, its SVG, validation and rendering |
+| `src/server/pdf-text.ts` | the text of PDF blocks, extracted for agents into `.think/text/` |
 | `src/server/agent/host.ts` | spawns the ACP agent, initialize, session resume/load/new, permission mode, auth state |
 | `src/server/agent/login.ts` | the provider-agnostic login terminal (node-pty) |
 | `src/server/agent/process.ts`, `runner.ts` | start processes locally or in the agents container over a Unix socket |
 | `src/server/changes.ts` | what changed between two commits, in words (change notes, History) |
+| `src/server/reference-files.ts` | the `files/` folder (reference files, the Files tab): safe paths, listing |
 | `src/server/history.ts` | History: commits grouped into moments, snapshots of the past |
 | `src/server/requests.ts` | the `think` command's request folders (request and answer files) |
 | `src/server/commands.ts`, `canvas-ops.ts` | the `think` command's canvas commands: who may, the messages; the layout operations (pure) |
+| `src/server/ask.ts` | `think ask`: the canvas agent's questions to the user — checking them, waiting, the answer lines |
 | `src/server/guests.ts` | requests from outside agents (`ROOT/guests/`): which canvas, joining, the lock |
 | `src/server/guest-room.ts` | outside agents on a canvas: who joined, and each one's tab |
 | `src/server/auth.ts` | the optional app password |
 | `src/server/agent/env.ts` | the agent's environment allowlist and isolated HOME |
 | `src/server/templates.ts` | prompt templates, read at use time |
 | `src/shared/protocol.ts` | the WebSocket message types — the one place to extend the protocol |
-| `src/client/blocks/renderers.tsx` | pure block renderers (also used by `/render/<project>/<block>`) |
+| `src/client/blocks/renderers.tsx` | pure block renderers (also used by `/render/<project>/<block>`); `[[links]]` become chips via a remark plugin (`block-links.ts`), labelled and made clickable by optional props (`canvas/link-chips.ts`) |
+| `src/client/blocks/link-picker.ts` | the raw editor's `@` / `[[` block picker (CodeMirror autocompletion) |
 | `src/client/canvas/*` | React Flow canvas, nodes, edges, menus, shortcuts |
 | `src/client/chat/*` | chat panel, transcript entries, login dialog |
 
@@ -77,6 +81,20 @@ edits do not postpone it), on *Save now* (⌘/Ctrl+S or the status button), when
 History is opened or refreshed, before every agent turn, and when the canvas
 closes.
 
+## Reference files (`files/`)
+
+A canvas's `files/` folder (subfolders allowed) holds material that is not a
+block: spreadsheets, documents, archives, data. The side panel's Files tab
+lists, uploads (up to `MAX_REFERENCE_FILE_BYTES`, 50 MB, per file), previews,
+downloads, renames and deletes them over HTTP (`/api/projects/<slug>/reference-files`);
+changes are refused while the canvas is locked, like every user mutation. The
+watcher re-lists the folder on any change below it — the agent's too — and
+sends tabs the whole list (`files.changed`). Paths from requests never leave the
+folder: no `..`, absolute or hidden parts, and no symlinks on the way.
+Downloads are attachments; only images and plain text are served inline, under
+`Content-Security-Policy: sandbox`. The folder is committed like the rest of the
+canvas (History restores blocks, not these files; git keeps them).
+
 ## Canvas format and upgrades
 
 Each canvas folder records its format in the committed `think.json` (no
@@ -98,6 +116,12 @@ of every turn (during a turn it runs in memory for display only):
 
 - a file that vanished and one that appeared with the same (or mostly the same)
   content → a rename: the node keeps its place, size and connections;
+- every rename (the user's, `think rename`, or an agent moving the file) also
+  rewrites `[[old-name]]` / `[[old-name|text]]` links in all Markdown blocks,
+  outside code (`src/shared/links.ts`): at once when unlocked, else just before
+  the turn's or outside agent's commit, so it lands in the same commit;
+- a file node's optional `title` (free text, one line, ≤ 120 characters) is
+  cleaned; it is what the block shows as its name (`blockLabel`);
 - file without a node → placed on the nearest free grid slot next to the block
   most recently touched (by mtime) in the turn; otherwise near the centroid;
 - node without a file → removed with its edges;
@@ -189,6 +213,21 @@ fits it and is dropped — History keeps it. *Replace image…* in the app offer
 a new picture or a blank page (a colour), and asks first when there is a
 drawing: keep it on the new page, or start fresh. The agent sees only the finished
 picture; its change note says which images were drawn on.
+
+## PDF blocks
+
+A `.pdf` at the top level is a block, shown read-only: the client draws its
+pages with pdf.js (`blocks/PdfView.tsx`, loaded on first use, its worker bundled
+from the package), only the pages near the visible part and only while the
+block is on screen, less sharp when zoomed out. Uploads go through the image
+route (`POST …/images`), up to `MAX_PDF_BYTES` (25 MB).
+
+Claude Code reads a PDF itself; Codex can't. So the server keeps each PDF
+block's text in `.think/text/<name>.pdf.txt` (pdf.js's Node build, page by
+page, `pdf-text.ts`): rebuilt in the background when a PDF appears or changes
+(`index.json` records which version each text came from), removed when it goes,
+and awaited before a turn starts. It is derived and app-private — `.think/` is
+git-ignored, so it is never committed.
 
 ## Outside agents
 

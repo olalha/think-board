@@ -5,6 +5,40 @@ before 1.0, a minor version may change things that are not backwards compatible.
 How versions and releases work: "Versioning and releases" in
 [docs/development.md](docs/development.md).
 
+## 0.7.1
+
+- **Canvas format 4.** Opening a canvas upgrades it (committed as the app);
+  an older think then refuses it rather than dropping PDF blocks and block
+  titles from its layout.
+- Blocks can have free-text titles (any characters, emoji too): renaming to text keeps it as
+  the title and renames the file to match; `[[block-name]]` links in Markdown blocks follow
+  every rename, and the agent is told about links to blocks that do not exist.
+- Renaming a block in the canvas takes any title and shows the file name it gives; in a
+  Markdown block's raw editor, `@` or `[[` picks a block to link, and links render as chips
+  that fly to the block (struck through when no block has that name), in chat replies too.
+- The canvas's own agent can ask the user questions with `think ask`: a card in the chat
+  with options, an "Other" answer and Skip; the agent waits for the answers.
+- **Fix:** text pasted just after creating a block, or with a fresh block
+  selected, goes into that block instead of also becoming a new one.
+- **Fix:** the font size setting (now "Text size", 12–17) also sizes rendered
+  blocks and chat replies; before, it changed only the raw editor.
+- **Fix:** a slash command's report (`/context`) shows once; Claude Code's
+  adapter sent it twice. Its later sections (tools, skills…) are folded.
+- Each chat reply has a copy button that copies its Markdown.
+- **Copy content** in a block's menu: a Markdown block copies as formatted
+  text from the rendered view and as Markdown from the raw view.
+- `think link` takes `--from-side` and `--to-side` (top, right, bottom or left) to choose
+  where an arrow attaches to each block, on a new or an existing link.
+- Pressing Z again on a very tall or wide block zooms in on its start so the text is
+  readable; a third press fits it whole again.
+- Drag the ends of a selected arrow to attach it to another side or another block.
+- A **Files** tab in the side panel keeps reference material that isn't a block
+  (spreadsheets, documents, archives, data) in the canvas's `files/` folder: upload or drop
+  files, preview text, CSV and images, download, rename, delete. The agent reads them and
+  can leave exports there.
+- **PDF blocks:** drop, paste or upload a PDF (up to 25 MB) to read it on the canvas; agents
+  read it too, Codex through its extracted text.
+
 ## 0.6.4
 
 - **Security:** Node 24.22.3 in both containers (fixes for HTTP/2 and TLS).

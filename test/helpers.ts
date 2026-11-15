@@ -41,7 +41,7 @@ export async function waitFor(check: () => boolean | Promise<boolean>, what: str
   throw new Error(`timed out waiting for ${what}`);
 }
 
-export async function makeHarness(opts: { maxAttempts?: number; fakeEnv?: Record<string, string>; providerExtra?: Record<string, unknown>; secondProvider?: boolean } = {}): Promise<Harness> {
+export async function makeHarness(opts: { maxAttempts?: number; fakeEnv?: Record<string, string>; providerExtra?: Record<string, unknown>; secondProvider?: boolean; askWaitMs?: number } = {}): Promise<Harness> {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "think-test-"));
   const appDir = path.join(root, "app");
   await fs.mkdir(path.join(appDir, "config"), { recursive: true });
@@ -92,6 +92,7 @@ export async function makeHarness(opts: { maxAttempts?: number; fakeEnv?: Record
     mermaid,
     logins: new LoginManager(paths),
     log: silentLogger,
+    askWaitMs: opts.askWaitMs,
   });
   await runtime.open();
   const messages: ServerMessage[] = [];

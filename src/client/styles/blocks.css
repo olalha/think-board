@@ -72,6 +72,7 @@
 .block.type-mermaid { --type: var(--type-mermaid); }
 .block.type-html { --type: var(--type-html); }
 .block.type-image { --type: var(--type-image); }
+.block.type-pdf { --type: var(--type-pdf); }
 .block:hover {
   box-shadow: var(--shadow-block-hover);
 }
@@ -195,7 +196,7 @@
 /* ---- markdown ------------------------------------------------------------ */
 .md,
 .chat-agent {
-  font-size: 13.5px;
+  font-size: calc(13.5px * var(--text-scale, 1));
   line-height: 1.6;
   color: var(--text);
   overflow-wrap: anywhere;
@@ -215,6 +216,39 @@
 }
 .md > :last-child {
   margin-bottom: 0;
+}
+/* [[block]] links: an inline chip that flies to the block; struck when no block has the name. */
+.block-link {
+  display: inline;
+  padding: 0 0.35em;
+  border: 0;
+  border-radius: 5px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font: inherit;
+  font-weight: 560;
+  line-height: inherit;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+button.block-link {
+  cursor: pointer;
+}
+button.block-link:hover {
+  background: var(--active);
+  color: var(--accent-hover);
+}
+button.block-link:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+.block-link.missing {
+  background: var(--panel-3);
+  color: var(--text-3);
+  text-decoration: line-through;
+  cursor: default;
 }
 .md h1,
 .md h2,
@@ -410,6 +444,60 @@
   font-size: 12.5px;
 }
 
+/* ---- pdf ------------------------------------------------------------------ */
+.pdf-view {
+  position: relative;
+  height: 100%;
+}
+.pdf-pages {
+  height: 100%;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 8px; /* PAD in PdfView.tsx */
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--panel-2);
+}
+.pdf-page {
+  flex: none;
+  width: 100%;
+  background: #fff; /* paper, in either theme */
+  box-shadow: var(--shadow-sm);
+}
+.pdf-canvas,
+.pdf-canvas canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.pdf-pager {
+  position: absolute;
+  right: 10px;
+  bottom: 8px;
+  padding: 2px 8px;
+  border-radius: 99px;
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  box-shadow: var(--shadow-sm);
+  color: var(--text-2);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+.pdf-message {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  text-align: center;
+  color: var(--text-3);
+  font-size: 12.5px;
+}
+.html-placeholder.pdf-placeholder svg {
+  color: var(--type-pdf);
+}
+
 /* ---- connection handles --------------------------------------------------- */
 .block-handle.react-flow__handle {
   width: 11px;
@@ -462,6 +550,7 @@
 }
 .render-page.type-mermaid .mermaid-view,
 .render-page.type-image .image-view,
+.render-page.type-pdf .pdf-view,
 .render-page.type-html .html-frame {
   height: 100vh;
   pointer-events: auto;

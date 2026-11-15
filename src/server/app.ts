@@ -6,9 +6,14 @@
 //   POST /api/projects                     create {name, provider}
 //   PATCH /api/projects/:slug              rename {name}
 //   GET  /api/projects/:slug/files/:file   raw block file (images; downloads); ?rev=<commit> for History
-//   POST /api/projects/:slug/images        upload an image (raw body) → new block, or ?replace=<name>
+//   POST /api/projects/:slug/images        upload an image or a PDF (raw body) → new block, or ?replace=<name> (images)
 //   GET  /api/projects/:slug/drawings/:name/base   a drawing's original image (?file=base-….png: that one)
 //   POST /api/projects/:slug/drawings/:name/base   a photo to become a drawing's page (raw body) → {file, width, height}
+//   GET  /api/projects/:slug/reference-files          the files/ folder: [{path, size, mtime}]
+//   GET  /api/projects/:slug/reference-files/<path>   one file (?download: as an attachment)
+//   PUT  /api/projects/:slug/reference-files/<path>   upload (raw body, octet-stream) → {path}; ?replace=1 overwrites
+//   PATCH /api/projects/:slug/reference-files/<path>  rename / move {to} → {path}
+//   DELETE /api/projects/:slug/reference-files/<path> delete
 //   POST /api/projects/:slug/beacon        last-gasp autosave from a closing tab (sendBeacon)
 //   GET  /ws/projects/:slug                the project's WebSocket (see shared/protocol.ts)
 //   GET  /render/:slug/:block              reserved render-only route (client-side)
@@ -21,7 +26,7 @@ import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest }
 import fastifyStatic from "@fastify/static";
 import fastifyWebsocket from "@fastify/websocket";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { EXTENSION_PRECEDENCE, IMAGE_MIME, parseBlockFile } from "../shared/blocks.js";
+import { EXTENSION_PRECEDENCE, IMAGE_MIME, isTextType, parseBlockFile, PDF_MIME } from "../shared/blocks.js";
 import type { ClientMessage, ServerMessage } from "../shared/protocol.js";
 import type { ConfigStore, Paths } from "./config.js";
 import { providerHome } from "./agent/env.js";
@@ -33,6 +38,7 @@ import type { ProjectManager } from "./manager.js";
 import { SLUG_RE, UserError, type ProjectStore } from "./projects.js";
 import { NewerFormatError } from "./think-file.js";
 import { BASE_FILE_RE, readDrawing, sidecarDir } from "./drawings.js";
+import { contentDisposition, listReferenceFiles, MAX_REFERENCE_FILE_BYTES, previewMime, resolveFilePath } from "./reference-files.js";
 import type { ClientConn, ProjectRuntime } from "./runtime.js";
 import { errorMessage, newId } from "./util.js";
 
@@ -56,9 +62,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     trustProxy: true,
   });
 
-  // Raw bodies for image uploads; JSON (and text/plain JSON from sendBeacon) otherwise.
+  // Raw bodies for image and PDF uploads; JSON (and text/plain JSON from sendBeacon) otherwise.
   app.addContentTypeParser(/^image\//, { parseAs: "buffer" }, (_req, body, done) => done(null, body));
-  app.addContentTypeParser("application/octet-stream", { parseAs: "buffer" }, (_req, body, done) => done(null, body));
+  app.addContentTypeParser(["application/octet-stream", "application/pdf"], { parseAs: "buffer" }, (_req, body, done) => done(null, body));
   app.addContentTypeParser("text/plain", { parseAs: "string" }, (_req, body, done) => {
     try {
       done(null, JSON.parse(body as string));
@@ -256,7 +262,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         return reply.code(404).send({ error: "Not found." });
       }
     }
-    const mime = IMAGE_MIME[parsed.ext] ?? (parsed.ext === "html" ? "text/plain; charset=utf-8" : "text/plain; charset=utf-8");
+    const mime = IMAGE_MIME[parsed.ext] ?? (parsed.ext === "pdf" ? PDF_MIME : "text/plain; charset=utf-8");
     reply.header("Content-Type", mime);
     // Never render agent-written HTML as a page in our origin.
     reply.header("Content-Security-Policy", "sandbox");
@@ -308,7 +314,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       .sort((a, b) => EXTENSION_PRECEDENCE.indexOf(a.p!.ext) - EXTENSION_PRECEDENCE.indexOf(b.p!.ext));
     const hit = candidates[0];
     if (!hit) return reply.code(404).send({ error: "Not found." });
-    const content = hit.p!.type === "image" ? undefined : await fs.promises.readFile(path.join(store.dir(slug), hit.f), "utf8");
+    const content = !isTextType(hit.p!.type) ? undefined : await fs.promises.readFile(path.join(store.dir(slug), hit.f), "utf8");
     return { name, file: hit.f, type: hit.p!.type, content };
   });
 
@@ -327,7 +333,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       if (!Buffer.isBuffer(body) || body.length === 0) throw new UserError("Send the image as the request body.");
       const runtime = await runtimeFor(slug);
       const mime = String(req.headers["content-type"] ?? "").split(";")[0].trim();
-      return await runtime.putImage(body, mime, {
+      return await runtime.putUpload(body, mime, {
         x: q.x !== undefined ? Number(q.x) : undefined,
         y: q.y !== undefined ? Number(q.y) : undefined,
         replace: q.replace || undefined,
@@ -344,6 +350,76 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       if (!Buffer.isBuffer(body) || body.length === 0) throw new UserError("Send the image as the request body.");
       const runtime = await runtimeFor(slug);
       return await runtime.putDrawingBase(name, body, String(req.headers["content-type"] ?? "").split(";")[0].trim());
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+
+  // ---- the files/ folder (reference material that is not a block) ------------
+  const FILES_ROUTE = "/api/projects/:slug/reference-files";
+  const filePath = (req: FastifyRequest) => (req.params as { "*": string })["*"] ?? "";
+
+  app.get(FILES_ROUTE, async (req, reply) => {
+    const { slug } = req.params as { slug: string };
+    if (!SLUG_RE.test(slug) || !(await store.exists(slug))) return reply.code(404).send({ error: "Not found." });
+    return { files: await listReferenceFiles(store.dir(slug)) };
+  });
+
+  app.get(`${FILES_ROUTE}/*`, async (req, reply) => {
+    const { slug } = req.params as { slug: string };
+    if (!SLUG_RE.test(slug)) return reply.code(404).send({ error: "Not found." });
+    let full: string;
+    try {
+      const r = await resolveFilePath(store.dir(slug), filePath(req));
+      if (r.kind !== "file") return reply.code(404).send({ error: "Not found." });
+      full = r.full;
+    } catch (err) {
+      return fail(reply, err);
+    }
+    const name = path.basename(full);
+    const download = (req.query as { download?: string }).download !== undefined;
+    const stat = await fs.promises.stat(full);
+    // Previews only for plain types; anything else is a download whatever was asked.
+    const mime = previewMime(name);
+    reply.header("Content-Type", mime);
+    reply.header("Content-Length", stat.size);
+    reply.header("Content-Disposition", contentDisposition(download || mime === "application/octet-stream" ? "attachment" : "inline", name));
+    reply.header("Content-Security-Policy", "sandbox");
+    reply.header("X-Content-Type-Options", "nosniff");
+    reply.header("Cache-Control", "no-cache");
+    return reply.send(fs.createReadStream(full));
+  });
+
+  app.put(`${FILES_ROUTE}/*`, { bodyLimit: MAX_REFERENCE_FILE_BYTES }, async (req, reply) => {
+    const { slug } = req.params as { slug: string };
+    try {
+      const body = req.body ?? Buffer.alloc(0);
+      if (!Buffer.isBuffer(body)) throw new UserError("Send the file as the request body (application/octet-stream).");
+      const runtime = await runtimeFor(slug);
+      return await runtime.putReferenceFile(filePath(req), body, { replace: (req.query as { replace?: string }).replace === "1" });
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+
+  app.patch(`${FILES_ROUTE}/*`, async (req, reply) => {
+    const { slug } = req.params as { slug: string };
+    try {
+      const to = (req.body as { to?: unknown } | null)?.to;
+      if (typeof to !== "string") throw new UserError("Say where the file goes: {to}.");
+      const runtime = await runtimeFor(slug);
+      return await runtime.moveReferenceFile(filePath(req), to);
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+
+  app.delete(`${FILES_ROUTE}/*`, async (req, reply) => {
+    const { slug } = req.params as { slug: string };
+    try {
+      const runtime = await runtimeFor(slug);
+      await runtime.deleteReferenceFile(filePath(req));
+      return { ok: true };
     } catch (err) {
       return fail(reply, err);
     }

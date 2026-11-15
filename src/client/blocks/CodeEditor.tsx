@@ -29,10 +29,17 @@ import { markdown } from "@codemirror/lang-markdown";
 import { html } from "@codemirror/lang-html";
 import { tags as t } from "@lezer/highlight";
 import { flowchartTags, ganttTags, journeyTags, mermaid, mermaidTags, mindmapTags, pieTags, requirementTags, sequenceTags } from "codemirror-lang-mermaid";
-import type { BlockType } from "../../shared/blocks";
+import { blockLabel, type BlockType } from "../../shared/blocks";
 import { hasPendingEdit, onBlockContent, queueEdit } from "../lib/project";
 import { recordEdit } from "../canvas/actions";
-import { useBoard } from "../lib/store";
+import { titleIn, useBoard } from "../lib/store";
+import { linkPicker, type PickerBlock } from "./link-picker";
+
+/** The canvas's blocks as the @ picker lists them. */
+function pickerBlocks(): PickerBlock[] {
+  const { blocks, canvas } = useBoard.getState();
+  return Object.values(blocks).map((b) => ({ name: b.name, type: b.type, label: blockLabel(b.name, { title: titleIn(canvas, b.name) }) }));
+}
 
 const Remote = Annotation.define<boolean>();
 
@@ -118,6 +125,29 @@ const baseTheme = EditorView.theme({
   ".cm-search-count": { minWidth: "64px", color: "var(--text-3)", fontSize: "12px", fontVariantNumeric: "tabular-nums" },
   ".cm-searchMatch": { backgroundColor: "color-mix(in srgb, var(--warn) 30%, transparent)" },
   ".cm-searchMatch.cm-searchMatch-selected": { backgroundColor: "color-mix(in srgb, var(--warn) 55%, transparent)" },
+  // The @ picker's list (it lives in <body>, at screen size, with these classes).
+  ".cm-tooltip": {
+    zIndex: "800",
+    backgroundColor: "var(--panel)",
+    color: "var(--text)",
+    border: "1px solid var(--border)",
+    borderRadius: "8px",
+    boxShadow: "var(--shadow-lg)",
+    overflow: "hidden",
+  },
+  ".cm-tooltip.cm-tooltip-autocomplete > ul": { fontFamily: "var(--font-sans)", fontSize: "13px", maxHeight: "16em", minWidth: "220px", maxWidth: "380px", padding: "4px" },
+  ".cm-tooltip.cm-tooltip-autocomplete > ul > li": { display: "flex", alignItems: "center", gap: "8px", padding: "4px 8px", borderRadius: "5px", lineHeight: "1.4" },
+  ".cm-tooltip-autocomplete ul li[aria-selected]": { backgroundColor: "var(--accent-soft)", color: "var(--text)" },
+  ".cm-completionLabel": { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  ".cm-completionDetail": { marginLeft: "auto", paddingLeft: "10px", fontStyle: "normal", color: "var(--text-3)", fontSize: "11.5px", whiteSpace: "nowrap" },
+  ".cm-completionMatchedText": { textDecoration: "none", fontWeight: "650" },
+  ".cm-completionIcon": { width: "8px", height: "8px", padding: 0, marginRight: 0, borderRadius: "2px", opacity: 1, flex: "none" },
+  ".cm-completionIcon::after": { content: "''" },
+  ".cm-completionIcon-tb-markdown": { backgroundColor: "var(--type-markdown)" },
+  ".cm-completionIcon-tb-mermaid": { backgroundColor: "var(--type-mermaid)" },
+  ".cm-completionIcon-tb-html": { backgroundColor: "var(--type-html)" },
+  ".cm-completionIcon-tb-image": { backgroundColor: "var(--type-image)" },
+  ".cm-completionIcon-tb-pdf": { backgroundColor: "var(--type-pdf)" },
 });
 
 function languageFor(type: BlockType): Extension {
@@ -291,6 +321,7 @@ export function CodeEditor({
             indentWithTab,
           ]),
           languageFor(type),
+          type === "markdown" ? linkPicker(pickerBlocks, name) : [],
           baseTheme,
           readOnlyComp.current.of([EditorState.readOnly.of(readOnly), EditorView.editable.of(!readOnly)]),
           EditorView.updateListener.of((u) => {

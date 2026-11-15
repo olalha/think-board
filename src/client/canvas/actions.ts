@@ -1,11 +1,11 @@
 // Canvas actions shared by the toolbar, context menus and keyboard shortcuts.
 import type { ReactFlowInstance } from "@xyflow/react";
-import { BLOCK_SIZES, displayName, type BlockType } from "../../shared/blocks";
+import { BLOCK_SIZES, MAX_PDF_BYTES, PDF_MIME, renameTarget, type TextType } from "../../shared/blocks";
 import type { CanvasView, ViewList } from "../../shared/canvas";
 import type { Drawing } from "../../shared/drawing";
 import { fileUrl, preloadImage, uploadImage } from "../lib/api";
 import { act, currentSlug, layout } from "../lib/project";
-import { setMode, setSidePanelOpen, useBoard } from "../lib/store";
+import { labelOf, setChatOpen, setMode, setSidePanelOpen, titleIn, useBoard } from "../lib/store";
 import { useSettings } from "../lib/settings";
 import { isPhone, matches, NARROW } from "../lib/device";
 import { toast } from "../lib/toasts";
@@ -48,11 +48,23 @@ function lockedGuard(): boolean {
   return false;
 }
 
-export async function createBlock(type: Exclude<BlockType, "image">, at?: { x: number; y: number }): Promise<void> {
+/**
+ * The block this tab is creating right now, or created last: a paste that
+ * lands before its editor has focus belongs in it, not in a new block.
+ */
+let lastCreated: { name: Promise<string | null>; at: number } | null = null;
+
+export function recentlyCreated(withinMs: number): Promise<string | null> | null {
+  return lastCreated && Date.now() - lastCreated.at < withinMs ? lastCreated.name : null;
+}
+
+export async function createBlock(type: TextType, at?: { x: number; y: number }): Promise<void> {
   if (lockedGuard()) return;
   const p = at ?? placementPoint();
   const size = BLOCK_SIZES[type];
-  const r = await act<{ name: string }>({ type: "block.create", blockType: type, x: p.x - size.width / 2, y: p.y - 40 });
+  const req = act<{ name: string }>({ type: "block.create", blockType: type, x: p.x - size.width / 2, y: p.y - 40 });
+  lastCreated = { name: req.then((r) => r?.name ?? null), at: Date.now() };
+  const r = await req;
   if (!r) return;
   recordCreate(r.name);
   const mode = useSettings.getState().newBlockMode;
@@ -61,13 +73,31 @@ export async function createBlock(type: Exclude<BlockType, "image">, at?: { x: n
   select([r.name]);
 }
 
+/** A PDF file, by its type or (some systems give dropped files no type) its name. */
+export function isPdfFile(file: File | Blob): boolean {
+  return file.type === PDF_MIME || (!file.type && file instanceof File && /\.pdf$/i.test(file.name));
+}
+
+/** A file that can become a block: an image or a PDF. */
+export function isBlockFile(file: File | Blob): boolean {
+  return file.type.startsWith("image/") || isPdfFile(file);
+}
+
+/** Upload an image or a PDF as a new block. */
 export async function createImage(file: File | Blob, at?: { x: number; y: number }): Promise<void> {
   if (lockedGuard()) return;
   const slug = currentSlug();
   if (!slug) return;
+  const pdf = isPdfFile(file);
+  if (pdf && file.size > MAX_PDF_BYTES) {
+    return void toast.error(`That PDF is too large (${(file.size / 1048576).toFixed(1)} MB); the limit is ${MAX_PDF_BYTES / 1048576} MB.`);
+  }
+  // A typeless .pdf is sent as one, so the server knows what it is.
+  if (pdf && !file.type) file = new Blob([file], { type: PDF_MIME });
   const p = at ?? placementPoint();
   const key = `u${Math.random().toString(36).slice(2, 8)}`;
-  const box = { x: p.x - 160, y: p.y - 120, width: 320, height: 240 };
+  const s = BLOCK_SIZES[pdf ? "pdf" : "image"];
+  const box = { x: p.x - s.width / 2, y: p.y - s.height / 2, width: s.width, height: s.height };
   const setUpload = (progress: number | null) =>
     useCanvasUi.setState((s) => {
       const uploads = { ...s.uploads };
@@ -81,7 +111,7 @@ export async function createImage(file: File | Blob, at?: { x: number; y: number
     // The upload answers over HTTP; the block itself arrives over the socket.
     await waitForBlock(r.name);
     recordCreate(r.name);
-    toast.success(`Added image ${displayName(r.name)}`);
+    toast.success(`Added ${pdf ? "PDF" : "image"} ${labelOf(r.name)}`);
     select([r.name]);
   } catch (err) {
     toast.error((err as Error).message);
@@ -110,7 +140,7 @@ export async function replaceImage(name: string, choice: PageChoice): Promise<vo
   const drawn = r.saved && r.drawing.shapes.length > 0;
   if (!drawn) return choice.kind === "photo" ? uploadReplacement(name, choice.file) : inEditor("fresh");
   const fresh = () => (choice.kind === "photo" ? void uploadReplacement(name, choice.file) : inEditor("fresh"));
-  const title = choice.kind === "photo" ? `Replace the picture of ${displayName(name)}?` : `Make ${displayName(name)} a blank page?`;
+  const title = choice.kind === "photo" ? `Replace the picture of ${labelOf(name)}?` : `Make ${labelOf(name)} a blank page?`;
   if (isPhone()) {
     // Keeping the drawing happens in the drawing editor: a tablet or computer.
     if (choice.kind === "color") return void toast.info("Drawing needs a bigger screen — open this canvas on a tablet or computer.");
@@ -165,7 +195,7 @@ async function uploadReplacement(name: string, file: File | Blob): Promise<void>
     const hash = await blockChange(name, before);
     const b = useBoard.getState().blocks[name];
     if (hash && b) await preloadImage(fileUrl(slug, b.file, hash));
-    toast.success(`Replaced ${displayName(name)}`);
+    toast.success(`Replaced ${labelOf(name)}`);
   } catch (err) {
     toast.error((err as Error).message);
   } finally {
@@ -174,10 +204,10 @@ async function uploadReplacement(name: string, file: File | Blob): Promise<void>
 }
 
 /** Open the OS file picker for an image. */
-export function pickImage(onFile: (f: File) => void): void {
+export function pickImage(onFile: (f: File) => void, opts: { pdf?: boolean } = {}): void {
   const input = document.createElement("input");
   input.type = "file";
-  input.accept = "image/png,image/jpeg,image/webp,image/gif";
+  input.accept = "image/png,image/jpeg,image/webp,image/gif" + (opts.pdf ? `,${PDF_MIME},.pdf` : "");
   input.onchange = () => {
     const f = input.files?.[0];
     if (f) onFile(f);
@@ -199,7 +229,7 @@ export function deleteBlocks(names: string[], opts: { skipConfirm?: boolean } = 
   const run = async () => {
     const r = await act<{ batch: string } | undefined>({ type: "block.delete", names });
     if (!r) return;
-    const what = names.length === 1 ? displayName(names[0]) : `${names.length} blocks`;
+    const what = names.length === 1 ? labelOf(names[0]) : `${names.length} blocks`;
     let batch = r.batch;
     const step = record({
       label: `Delete ${what}`,
@@ -232,7 +262,7 @@ export function deleteBlocks(names: string[], opts: { skipConfirm?: boolean } = 
   };
   if (useSettings.getState().confirmDelete && !opts.skipConfirm) {
     useCanvasUi.getState().askConfirm({
-      title: names.length === 1 ? `Delete ${displayName(names[0])}?` : `Delete ${names.length} blocks?`,
+      title: names.length === 1 ? `Delete ${labelOf(names[0])}?` : `Delete ${names.length} blocks?`,
       body: "The files are removed from the project folder. You can undo right after, and git keeps the history.",
       action: "Delete",
       danger: true,
@@ -243,17 +273,53 @@ export function deleteBlocks(names: string[], opts: { skipConfirm?: boolean } = 
   }
 }
 
-/** Rename a block (the F2 editor), recorded for ⌘Z. */
-export async function renameBlock(name: string, to: string): Promise<boolean> {
-  const r = await act<{ name: string }>({ type: "block.rename", name, to });
-  if (!r) return false;
-  const swap = async (from: string, into: string): Promise<Outcome> => {
-    const blocks = useBoard.getState().blocks;
-    if (!blocks[from] || blocks[into]) return "stale";
-    return (await act({ type: "block.rename", name: from, to: into })) === null ? "failed" : "ok";
-  };
-  record({ label: `Rename ${displayName(name)}`, undo: () => swap(to, name), redo: () => swap(name, to) });
-  return true;
+/** A block's name and title: what a rename changes, and what undoing it restores. */
+export interface BlockIdentity {
+  name: string;
+  title?: string;
+}
+
+/**
+ * Bring a block from `from` (its name and title now) back to `to`. A plain
+ * name renames the file and clears the title; free text sets the title and
+ * renames the file to it made a name; text that makes the current name sets
+ * only the title (see `block.rename`). So: one message when the title alone
+ * lands on the wanted name, else the name first and then the title.
+ */
+async function restoreIdentity(from: BlockIdentity, to: BlockIdentity): Promise<Outcome> {
+  const s = useBoard.getState();
+  if (!s.blocks[from.name] || titleIn(s.canvas, from.name) !== from.title) return "stale";
+  if (to.name !== from.name && s.blocks[to.name]) return "stale";
+  const send = (name: string, text: string) => act<BlockIdentity>({ type: "block.rename", name, to: text });
+  if (to.title && renameTarget(to.title, from.name)?.name === to.name) {
+    return (await send(from.name, to.title)) === null ? "failed" : "ok";
+  }
+  let at = from.name;
+  if (to.name !== at || !to.title) {
+    const r = await send(at, to.name);
+    if (!r) return "failed";
+    at = r.name;
+  }
+  if (to.title) {
+    const r = await send(at, to.title);
+    if (!r) return "failed";
+  }
+  return "ok";
+}
+
+/**
+ * Rename a block (the F2 editor) to a name or free text (see `block.rename`),
+ * recorded for ⌘Z: undo restores the name and title it had, redo the new ones.
+ */
+export async function renameBlock(name: string, to: string): Promise<BlockIdentity | null> {
+  const before: BlockIdentity = { name, title: titleIn(useBoard.getState().canvas, name) };
+  const label = labelOf(name);
+  const r = await act<BlockIdentity>({ type: "block.rename", name, to });
+  if (!r) return null;
+  const after: BlockIdentity = { name: r.name, title: r.title };
+  if (after.name === before.name && after.title === before.title) return after;
+  record({ label: `Rename ${label}`, undo: () => restoreIdentity(after, before), redo: () => restoreIdentity(before, after) });
+  return after;
 }
 
 /** A visit to a block's editor changed its text: one ⌘Z step. */
@@ -268,7 +334,7 @@ export function recordEdit(name: string, before: string, after: string): void {
     if (blocks[name]) useBoard.setState({ blocks: { ...blocks, [name]: { ...blocks[name], content } } });
     return "ok";
   };
-  record({ label: `Edit ${displayName(name)}`, undo: () => put(after, before), redo: () => put(before, after) });
+  record({ label: `Edit ${labelOf(name)}`, undo: () => put(after, before), redo: () => put(before, after) });
 }
 
 /** A block this tab just created: undo deletes it (while nobody has changed it since), redo brings it back. */
@@ -277,7 +343,7 @@ function recordCreate(name: string): void {
   if (!created) return;
   let batch: string | null = null;
   record({
-    label: `Add ${displayName(name)}`,
+    label: `Add ${labelOf(name)}`,
     undo: async () => {
       const b = useBoard.getState().blocks[name];
       if (!b || b.hash !== created.hash) return "stale";
@@ -341,6 +407,16 @@ export function jumped(go: () => void): void {
   if (matches(NARROW)) setSidePanelOpen(false);
 }
 
+/** A `[[link]]` chip was clicked: fly to its block (on a narrow screen, out from under the panels). */
+export function followLink(name: string): void {
+  if (!useBoard.getState().blocks[name]) return;
+  zoomToBlock(name, { select: true });
+  if (matches(NARROW)) {
+    setSidePanelOpen(false);
+    setChatOpen(false);
+  }
+}
+
 /** Fly to a block (or group), select it and flash it so the eye finds it. */
 export function zoomToBlock(name: string, opts: { select?: boolean; history?: boolean } = {}): void {
   const n = rf?.getNode(name);
@@ -351,6 +427,57 @@ export function zoomToBlock(name: string, opts: { select?: boolean; history?: bo
     rf.setNodes((ns) => ns.map((x) => (x.selected === (x.id === name) ? x : { ...x, selected: x.id === name })));
     flash(name);
   }
+}
+
+// Z pressed again on the same block: fit-whole <-> "fill the shorter side". The
+// state is the block, the mode last shown and the viewport that mode should have
+// produced; any pan/zoom since (viewport differs) or another block starts over.
+const BLOCK_PAD = { top: 110, bottom: 100, left: 48, right: 48 };
+const FILL_MIN_GAIN = 1.1;
+let zState: { name: string; mode: "fit" | "fill"; vp: { x: number; y: number; zoom: number }; at: number } | null = null;
+
+/**
+ * Keyboard Z on one block: the first press fits it whole; pressing again fills
+ * the view with its shorter side, anchored at its top (tall) or left end (wide),
+ * so a very long block becomes readable. It alternates, and stays on fit when
+ * the block is near square.
+ */
+export function toggleZoomBlock(name: string): void {
+  const node = rf?.getNode(name);
+  const pane = document.querySelector(".react-flow");
+  if (!rf || !node || !pane) return zoomToBlock(name);
+  const vp = rf.getViewport();
+  const cur = zState;
+  const unmoved =
+    !!cur &&
+    cur.name === name &&
+    (Date.now() - cur.at < 600 ||
+      (Math.abs(cur.vp.x - vp.x) < 2 && Math.abs(cur.vp.y - vp.y) < 2 && Math.abs(cur.vp.zoom - vp.zoom) < 0.001));
+  if (!unmoved || cur!.mode === "fill") {
+    zoomToBlock(name);
+    zState = { name, mode: "fit", vp, at: Date.now() };
+    // fitView's target viewport isn't known here; record it once the animation settles.
+    window.setTimeout(() => {
+      if (zState?.name === name && zState.mode === "fit" && rf) zState = { ...zState, vp: rf.getViewport() };
+    }, 520);
+    return;
+  }
+  const b = rf.getNodesBounds([name]);
+  const { width: W, height: H } = pane.getBoundingClientRect();
+  const aw = W - BLOCK_PAD.left - BLOCK_PAD.right;
+  const ah = H - BLOCK_PAD.top - BLOCK_PAD.bottom;
+  if (!(b.width > 0 && b.height > 0 && aw > 0 && ah > 0)) return zoomToBlock(name);
+  const clamp = (z: number) => Math.max(0.08, Math.min(1.25, z));
+  const fit = clamp(Math.min(aw / b.width, ah / b.height));
+  const tall = b.height > b.width;
+  const fill = clamp(tall ? aw / b.width : ah / b.height);
+  if (fill < fit * FILL_MIN_GAIN) return zoomToBlock(name);
+  const next = tall
+    ? { zoom: fill, x: BLOCK_PAD.left + (aw - b.width * fill) / 2 - b.x * fill, y: BLOCK_PAD.top - b.y * fill }
+    : { zoom: fill, x: BLOCK_PAD.left - b.x * fill, y: BLOCK_PAD.top + (ah - b.height * fill) / 2 - b.y * fill };
+  pushCamera();
+  void rf.setViewport(next, { duration: 400 });
+  zState = { name, mode: "fill", vp: next, at: Date.now() };
 }
 
 /**
@@ -411,7 +538,7 @@ export function captureView(): Pick<CanvasView, "x" | "y" | "width" | "height" |
     const w = n.measured?.width ?? n.width ?? 0;
     const h = n.measured?.height ?? n.height ?? 0;
     const node = useBoard.getState().canvas.nodes.find((x) => x.id === n.id);
-    const label = node?.type === "group" ? node.label?.trim() || "Untitled group" : displayName(n.id);
+    const label = node?.type === "group" ? node.label?.trim() || "Untitled group" : labelOf(n.id);
     return { x: Math.round(n.position.x), y: Math.round(n.position.y), width: Math.max(1, Math.round(w)), height: Math.max(1, Math.round(h)), target: n.id, followName: true, name: label };
   }
   if (sel.length > 1) {

@@ -1,6 +1,6 @@
 {
   "name": "think-board",
-  "version": "0.6.4",
+  "version": "0.7.1",
   "private": true,
   "description": "A self-hosted canvas for thinking with an AI agent: blocks are files, each canvas has its own agent.",
   "license": "MIT",
@@ -40,6 +40,7 @@
     "jsdom": "^30.1.2",
     "mermaid": "12.2.0",
     "node-pty": "^1.1.0",
+    "pdfjs-dist": "6.5.438",
     "perfect-freehand": "1.2.3",
     "zod": "^4.6.5"
   },

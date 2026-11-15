@@ -5,23 +5,89 @@
 // the very same components, which is what a future annotation feature needs
 // to screenshot a block exactly as the user sees it.
 
-import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
+import { lazy, memo, Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { AlertTriangle, ImageOff } from "lucide-react";
 import { withTheme } from "./html-theme";
-import { parseBlockFile } from "../../shared/blocks";
+import { displayName, parseBlockFile } from "../../shared/blocks";
+import { remarkBlockLinks } from "./block-links";
 import { cachedMermaid, renderMermaid, type MermaidResult } from "./mermaid";
+import type { PdfViewProps } from "./PdfView";
+
+// ---------------------------------------------------------------- pdf
+
+// pdf.js is large: the viewer and the library load on the first PDF shown.
+const LazyPdfView = lazy(() => import("./PdfView"));
+
+/** A PDF, its pages one under another, drawn only near the visible part. */
+export function PdfView(props: PdfViewProps) {
+  return (
+    <Suspense fallback={<div className="pdf-message"><span className="spinner" /></div>}>
+      <LazyPdfView {...props} />
+    </Suspense>
+  );
+}
 
 // ---------------------------------------------------------------- markdown
+
+/** How a `[[name]]` link reads: the block's label, and whether the block exists. */
+export type LinkResolver = (name: string) => { label: string; exists: boolean };
+
+/**
+ * A `[[name]]` link as a chip: "@Label" (or the link's own text). It flies to
+ * the block when `onClick` is given; a link to no block is struck through.
+ * Without a resolver (copying, the render route) it reads as the name made readable.
+ */
+function BlockLinkChip({ name, text, resolve, onClick }: { name: string; text?: string; resolve?: LinkResolver; onClick?: (name: string) => void }) {
+  const r = resolve?.(name) ?? { label: displayName(name), exists: true };
+  const shown = text?.trim() ? text : `@${r.label}`;
+  if (!r.exists) {
+    return (
+      <span className="block-link missing" data-block={name} data-tip={`No block named “${name}”`}>
+        {shown}
+      </span>
+    );
+  }
+  if (!onClick) {
+    return (
+      <span className="block-link" data-block={name}>
+        {shown}
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      className="block-link nodrag"
+      data-block={name}
+      data-tip={text?.trim() ? `Go to ${r.label}` : undefined}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick(name);
+      }}
+      onDoubleClick={(e) => e.stopPropagation()}
+    >
+      {shown}
+    </button>
+  );
+}
+
+const PLUGINS = [remarkGfm, remarkBlockLinks];
 
 export const MarkdownView = memo(function MarkdownView({
   source,
   resolveFile,
+  resolveLink,
+  onLinkClick,
 }: {
   source: string;
   /** Maps a bare block filename (e.g. `sally.png`) to a URL, so Markdown can embed canvas images. */
   resolveFile?: (file: string) => string | null;
+  /** Labels `[[name]]` links and says whether their block exists. */
+  resolveLink?: LinkResolver;
+  /** Makes `[[name]]` links clickable. */
+  onLinkClick?: (name: string) => void;
 }) {
   const components = useMemo<Components>(
     () => ({
@@ -32,13 +98,20 @@ export const MarkdownView = memo(function MarkdownView({
         return <img {...props} src={url} alt={alt ?? ""} loading="lazy" />;
       },
       input: ({ node: _node, ...props }) => <input {...props} disabled />,
+      span: ({ node: _node, ...props }) => {
+        const p = props as Record<string, unknown>;
+        const name = p["data-block"];
+        if (typeof name !== "string") return <span {...props} />;
+        const text = typeof p["data-text"] === "string" ? (p["data-text"] as string) : undefined;
+        return <BlockLinkChip name={name} text={text} resolve={resolveLink} onClick={onLinkClick} />;
+      },
     }),
-    [resolveFile],
+    [resolveFile, resolveLink, onLinkClick],
   );
   if (!source.trim()) return <div className="md-empty">Empty — switch to raw to write.</div>;
   return (
     <div className="md">
-      <Markdown remarkPlugins={[remarkGfm]} components={components}>
+      <Markdown remarkPlugins={PLUGINS} components={components}>
         {source}
       </Markdown>
     </div>

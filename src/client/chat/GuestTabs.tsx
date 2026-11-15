@@ -12,6 +12,7 @@ import { useSettings } from "../lib/settings";
 import { isPhone } from "../lib/device";
 import { Menu } from "../components/Menu";
 import { MarkdownView } from "../blocks/renderers";
+import { useLinkChips } from "../canvas/link-chips";
 import { useCanvasUi } from "../canvas/ui-state";
 import { toast } from "../lib/toasts";
 
@@ -214,6 +215,7 @@ function openHistoryAt(rev: string): void {
 
 export function GuestThread({ tab, active }: { tab: GuestTab; active: boolean }) {
   const lines = useBoard((s) => s.guestThreads[tab.name]) ?? EMPTY;
+  const links = useLinkChips();
   const scroller = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   // Coming back after leaving: the earlier visit folds away behind one button.
@@ -261,7 +263,7 @@ export function GuestThread({ tab, active }: { tab: GuestTab; active: boolean })
                 <div className="guest-msg-head">
                   <b>{tab.name}</b> <time>{time(e.ts)}</time>
                 </div>
-                <MarkdownView source={e.text} />
+                <MarkdownView source={e.text} {...links} />
               </div>
             );
           }

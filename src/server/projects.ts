@@ -228,6 +228,7 @@ export class ProjectStore {
     await fs.writeFile(path.join(dir, "canvas.json"), serializeCanvas(emptyCanvas()));
     await fs.writeFile(path.join(dir, "README.md"), readmeFor(trimmed, typeof description === "string" ? description.slice(0, 2000) : undefined));
     await fs.mkdir(path.join(dir, "work"), { recursive: true });
+    await fs.mkdir(path.join(dir, "files"), { recursive: true });
     if (template) await copyTemplate(template, dir);
     await installHooks(dir);
     const meta: ProjectMeta = { format: CANVAS_FORMAT, name: trimmed, provider: provider.id, createdAt: new Date().toISOString(), settings: this.defaultSettings() };
@@ -259,7 +260,7 @@ export class ProjectStore {
   /**
    * Bring a canvas made by an older version up to date, on every open: the
    * format migrations (migrations.ts), then the idempotent basics — .gitignore
-   * lines, a README, work/, the pre-commit hook. Commits what it changed, as
+   * lines, a README, work/ and files/, the pre-commit hook. Commits what it changed, as
    * the app. Throws NewerFormatError for a canvas this build cannot read.
    */
   async migrate(slug: string): Promise<void> {
@@ -291,6 +292,7 @@ export class ProjectStore {
       touched.push("README.md");
     }
     await fs.mkdir(path.join(dir, "work"), { recursive: true });
+    await fs.mkdir(path.join(dir, "files"), { recursive: true });
     await installHooks(dir);
     if (touched.length) {
       const message = format < CANVAS_FORMAT ? `think: upgraded the canvas to format ${CANVAS_FORMAT}` : "think: add README.md and update .gitignore";

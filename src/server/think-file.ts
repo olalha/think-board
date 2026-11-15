@@ -16,7 +16,7 @@ import type { CanvasSettings } from "../shared/protocol.js";
  * The canvas format this build writes. 1 = before think.json existed (0.1–0.2);
  * 2 = think.json (0.3); 3 = a drawing may keep several originals (0.4).
  */
-export const CANVAS_FORMAT = 3;
+export const CANVAS_FORMAT = 4;
 export const THINK_FILE = "think.json";
 
 export interface ThinkFile {
