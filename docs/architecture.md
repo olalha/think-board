@@ -99,6 +99,12 @@ of every turn (during a turn it runs in memory for display only):
 
 - a file that vanished and one that appeared with the same (or mostly the same)
   content → a rename: the node keeps its place, size and connections;
+- every rename (the user's, `think rename`, or an agent moving the file) also
+  rewrites `[[old-name]]` / `[[old-name|text]]` links in all Markdown blocks,
+  outside code (`src/shared/links.ts`): at once when unlocked, else just before
+  the turn's or outside agent's commit, so it lands in the same commit;
+- a file node's optional `title` (free text, one line, ≤ 120 characters) is
+  cleaned; it is what the block shows as its name (`blockLabel`);
 - file without a node → placed on the nearest free grid slot next to the block
   most recently touched (by mtime) in the turn; otherwise near the centroid;
 - node without a file → removed with its edges;
