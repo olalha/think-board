@@ -5,6 +5,11 @@ before 1.0, a minor version may change things that are not backwards compatible.
 How versions and releases work: "Versioning and releases" in
 [docs/development.md](docs/development.md).
 
+## 0.7.2
+
+- **Security:** @hono/node-server 2.1.8 (used by the agent adapters' MCP
+  support), with the hono fixes it brings.
+
 ## 0.7.1
 
 - **Canvas format 4.** Opening a canvas upgrades it (committed as the app);
