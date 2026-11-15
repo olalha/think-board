@@ -87,6 +87,7 @@ import { briefSummary, commitWork, isEmptySummary, summarizeRange, summaryLines,
 import { CANVAS_COMMANDS, CHANGING_COMMANDS, GUEST_ONLY_COMMANDS, LAYOUT_COMMANDS, OpError, runCommand, toCommandRequest, type Caller, type CommandHost, type CommandRequest } from "./commands.js";
 import { GuestRoom } from "./guest-room.js";
 import { RequestDir } from "./requests.js";
+import { ASK_WAIT_MS, checkAnswers, parseAskSpec, QuestionDesk, type AskReply, type QuestionEntry } from "./ask.js";
 import { historySnapshot, listHistory } from "./history.js";
 import type { MermaidValidator } from "./mermaid.js";
 import { allocateName } from "./names.js";
@@ -116,6 +117,8 @@ export interface RuntimeDeps {
   onClosed?: () => void;
   /** Called after a login terminal for this project's provider exits. */
   onProviderLogin?: (providerId: string) => void;
+  /** How long one `think ask` call waits for the user before saying "run think ask --wait" (tests shorten it). */
+  askWaitMs?: number;
 }
 
 interface FileEntry {
@@ -184,6 +187,8 @@ export class ProjectRuntime {
   private agentStatus: AgentStatus = { state: "stopped" };
   private agentStarting: Promise<void> | null = null;
   private pendingPermissions = new Map<string, { resolve: (optionId: string | null) => void; entryId: string }>();
+  /** Questions the agent asked (`think ask`) that wait for the user. */
+  private readonly questions: QuestionDesk;
   private streaming: { id: string; kind: "agent" | "thought"; text: string; ts: number } | null = null;
   private toolEntries = new Map<string, string>();
   /** Recent deletions that can still be undone (newest last; their files wait in .think/trash/<batch>). */
@@ -242,6 +247,7 @@ export class ProjectRuntime {
     this.dir = deps.store.dir(deps.slug);
     this.thinkDir = deps.store.thinkDir(deps.slug);
     this.room = new GuestRoom(this.thinkDir);
+    this.questions = new QuestionDesk(deps.askWaitMs ?? ASK_WAIT_MS, (entry) => this.updateEntry(entry, true));
   }
 
   private get log(): Logger {
@@ -266,6 +272,8 @@ export class ProjectRuntime {
     this.state = await this.deps.store.readState(this.slug);
     this.chat = new ChatLog(path.join(this.thinkDir, "chat.jsonl"));
     await this.chat.load();
+    // Questions left unanswered when the server stopped: their turn is over.
+    for (const e of this.chat.all()) if (e.kind === "question" && !e.outcome) await this.chat.put({ ...e, outcome: "cancelled" });
     await this.room.load();
     this.mermaidLastValid = await readJson(path.join(this.thinkDir, "mermaid-last-valid.json"), {});
     this.lastValid = await readJson(path.join(this.thinkDir, "canvas-last-valid.json"), emptyCanvas());
@@ -445,6 +453,7 @@ export class ProjectRuntime {
       this.log.warn("server shutting down during an agent turn");
     }
     for (const p of this.pendingPermissions.values()) p.resolve(null);
+    await this.questions.cancelAll();
     await this.agent?.stop();
     this.agent = null;
   }
@@ -1199,6 +1208,8 @@ export class ProjectRuntime {
         return this.cancel();
       case "agent.permission":
         return this.answerPermission(msg.requestId, msg.optionId);
+      case "agent.answer":
+        return this.answerQuestions(msg.questionId, msg.answers);
       case "agent.restart":
         return this.restartAgent();
       case "agent.newSession":
@@ -1903,6 +1914,7 @@ export class ProjectRuntime {
           permission: (req) => this.onPermission(req),
           crashed: (message) => {
             if (this.agent === agent) this.agent = null;
+            void this.questions.cancelAll();
             // Between turns this is usually think being updated or restarted (the
             // agents' container goes down with it): nothing was lost, so no alarm.
             if (this.turnRunning) void this.addSystem("error", "The agent process stopped unexpectedly. It will be restarted with your next message.", message);
@@ -2220,6 +2232,45 @@ export class ProjectRuntime {
     p.resolve(optionId);
   }
 
+  /** `think ask` from the canvas agent: show the questions, wait for the answer (or --wait for earlier ones). */
+  private async ask(req: CommandRequest): Promise<AskReply> {
+    if (!this.turnRunning) return { ok: false, message: "think ask works only during your turn." };
+    const wait = req.opts.wait;
+    if (typeof wait === "string") {
+      return this.questions.wait(wait, (id) => {
+        const e = this.chat.get(id);
+        return e?.kind === "question" ? e : undefined;
+      });
+    }
+    let questions;
+    try {
+      questions = parseAskSpec(req.args[0] ?? "");
+    } catch (err) {
+      if (err instanceof OpError) return { ok: false, message: err.message };
+      throw err;
+    }
+    this.finalizeStreaming();
+    const entry: QuestionEntry = { kind: "question", id: newId("q-"), ts: Date.now(), questions };
+    this.questions.open(entry);
+    await this.addEntry(entry);
+    return this.questions.wait(entry.id, () => undefined);
+  }
+
+  /** The user's answer to a question card (null: skipped). */
+  private async answerQuestions(id: string, answers: unknown): Promise<void> {
+    if (typeof id !== "string" || !this.questions.isPending(id)) throw new UserError("Those questions are no longer waiting for an answer.");
+    const entry = this.chat.get(id);
+    if (entry?.kind !== "question") throw new UserError("Those questions are no longer waiting for an answer.");
+    if (answers === null) return this.questions.resolve(id, "skipped");
+    let checked;
+    try {
+      checked = checkAnswers(entry.questions, answers);
+    } catch (err) {
+      throw new UserError(errorMessage(err));
+    }
+    await this.questions.resolve(id, "answered", checked);
+  }
+
   // ---------------------------------------------------------------- turns
 
   private setLock(locked: boolean, guest?: { by: string; note: string }): void {
@@ -2520,7 +2571,7 @@ export class ProjectRuntime {
   }
 
   /** A request from the canvas agent's `think` command (this canvas's .think/cli/). */
-  private async agentRequest(raw: unknown): Promise<{ ok: boolean; message: string }> {
+  private async agentRequest(raw: unknown): Promise<AskReply> {
     const req = toCommandRequest(raw);
     if (!req) return { ok: false, message: "That request is not one the think command sends (is it up to date?)." };
     if (GUEST_ONLY_COMMANDS.has(req.op)) {
@@ -2530,6 +2581,7 @@ export class ProjectRuntime {
       };
     }
     if (req.op === "status") return { ok: true, message: this.guestStatus() };
+    if (req.op === "ask") return this.ask(req);
     return this.command({ kind: "agent" }, req);
   }
 
@@ -2572,6 +2624,7 @@ export class ProjectRuntime {
     if (!this.turnRunning) return;
     this.cancelRequested = true;
     for (const p of [...this.pendingPermissions.values()]) p.resolve(null);
+    void this.questions.cancelAll();
     this.agent?.cancel();
   }
 
@@ -2702,6 +2755,7 @@ export class ProjectRuntime {
         })
         .catch((err) => this.log.error("post-turn steps failed", { error: errorMessage(err) }));
       for (const p of [...this.pendingPermissions.values()]) p.resolve(null);
+      await this.questions.cancelAll();
       this.turnRunning = false;
       this.cancelRequested = false;
       this.broadcast({ type: "agent.turn", running: false });

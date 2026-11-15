@@ -147,6 +147,12 @@ the canvas is for.
 - After each turn think checks Mermaid blocks, the layout, protected blocks and
   stray files; problems come back to you in a follow-up message to fix.
 - `think join`, `lock`, `say` and `leave` are for outside agents, not for you.
+- **Asking the user:** `think ask` shows questions with options in your chat
+  and waits for the answers (`think help ask`). Use it only for decisions that
+  are genuinely the user's and that change what you do next — not for what you
+  can decide or find out yourself, and not to confirm routine steps. Put
+  everything you need to know into one call (up to 4 questions), then carry on
+  with the answers.
 
 ### An agent from outside the app
 

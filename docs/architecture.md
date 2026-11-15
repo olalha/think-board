@@ -42,6 +42,7 @@ outside agents ─ bin/think ── files in ROOT/guests/ ──▶ GuestBridge 
 | `src/server/history.ts` | History: commits grouped into moments, snapshots of the past |
 | `src/server/requests.ts` | the `think` command's request folders (request and answer files) |
 | `src/server/commands.ts`, `canvas-ops.ts` | the `think` command's canvas commands: who may, the messages; the layout operations (pure) |
+| `src/server/ask.ts` | `think ask`: the canvas agent's questions to the user — checking them, waiting, the answer lines |
 | `src/server/guests.ts` | requests from outside agents (`ROOT/guests/`): which canvas, joining, the lock |
 | `src/server/guest-room.ts` | outside agents on a canvas: who joined, and each one's tab |
 | `src/server/auth.ts` | the optional app password |
