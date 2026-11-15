@@ -89,6 +89,6 @@ descriptively instead, and anyone can rename a block.
 | `THINK_PUBLIC_URL` | unset | the app's address as people open it (e.g. `https://think.example.com`): `think new` and `think url` print links with it |
 | `THINK_COMMIT` | unset | commit shown next to the version (a Docker build argument) |
 
-Per-browser preferences (theme, minimap, scrolling, editor font size, HTML
+Per-browser preferences (theme, minimap, scrolling, text size, HTML
 previews, delete confirmation, new-block mode, follow the agent, the side
 panel) are in the app's Settings and stored in the browser.
