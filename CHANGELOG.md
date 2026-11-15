@@ -16,6 +16,8 @@ How versions and releases work: "Versioning and releases" in
 - Each chat reply has a copy button that copies its Markdown.
 - **Copy content** in a block's menu: a Markdown block copies as formatted
   text from the rendered view and as Markdown from the raw view.
+- `think link` takes `--from-side` and `--to-side` (top, right, bottom or left) to choose
+  where an arrow attaches to each block, on a new or an existing link.
 
 ## 0.6.4
 

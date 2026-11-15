@@ -66,6 +66,7 @@ The canvas
                                        put a block file you wrote on the canvas
   think move <block|frame> (--near B [--side S] | --at X,Y | --by DX,DY | --in FRAME) [--size WxH]
   think link <from> <to> [--label "…"] [--style solid|dashed|dotted] [--arrow end|both|none]
+            [--from-side top|right|bottom|left] [--to-side top|right|bottom|left]
   think unlink <a> <b>
   think frame "Label" <block…>         draw a frame around blocks (or grow one to hold them)
   think unframe "Label"                remove a frame; its blocks stay
@@ -141,10 +142,13 @@ EOF
     ;;
     link) cat <<'EOF'
 think link <from> <to> [--label "…"] [--style solid|dashed|dotted] [--arrow end|both|none]
+            [--from-side top|right|bottom|left] [--to-side top|right|bottom|left]
   Connect two blocks (or frames) with an arrow from → to — or change the
   link they already have. Dashed reads as "maybe" or "later", dotted as a
   loose association. --arrow both puts heads on both ends, none on neither.
-  --label "" removes a label.
+  --label "" removes a label. --from-side / --to-side choose the edge of each
+  block the arrow leaves from and arrives at (default: the canvas picks
+  them); on an existing link they change just that side.
 EOF
     ;;
     unlink) cat <<'EOF'
@@ -343,7 +347,7 @@ while [ "$n" -gt 0 ]; do
   shift
   n=$((n - 1))
   case "$a" in
-    --as | --canvas | -c | -n | --near | --side | --at | --by | --size | --in | --label | --style | --arrow | --about)
+    --as | --canvas | -c | -n | --near | --side | --at | --by | --size | --in | --label | --style | --arrow | --from-side | --to-side | --about)
       [ "$n" -gt 0 ] || die "$a needs a value (think help)"
       v=$1
       shift
@@ -357,7 +361,7 @@ while [ "$n" -gt 0 ]; do
       ;;
     --as=*) AS=${a#--as=} ;;
     --canvas=*) CANVAS=${a#--canvas=} ;;
-    --near=* | --side=* | --at=* | --by=* | --size=* | --in=* | --label=* | --style=* | --arrow=* | --about=*)
+    --near=* | --side=* | --at=* | --by=* | --size=* | --in=* | --label=* | --style=* | --arrow=* | --from-side=* | --to-side=* | --about=*)
       k=${a%%=*}
       add_opt "${k#--}" "\"$(json "${a#*=}")\""
       ;;

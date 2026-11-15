@@ -81,7 +81,8 @@ create `tea-flowchart.md` next to `tea-flowchart.mmd`.
 - Place new blocks next to what they relate to, and **link** them when the
   relationship means something: `think link <from> <to>`, with a `--label`
   when it helps; `--style dashed` reads as “maybe” or “later”, `dotted` as a
-  loose association.
+  loose association. `--from-side` / `--to-side` (`top|right|bottom|left`)
+  pick the edges the arrow leaves and arrives at.
 - Sensible sizes: Markdown 360×260, Mermaid 420×300, HTML 480×360 (`--size`).
   Leave room between blocks; positions snap to a {{grid_size}} px grid.
 - **Frames** (labelled areas) organise a growing canvas: `think frame "Label"
