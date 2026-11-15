@@ -17,6 +17,8 @@ import { imageSize } from "image-size";
 import type * as acp from "@agentclientprotocol/sdk";
 import {
   BLOCK_SIZES,
+  blockLabel,
+  cleanTitle,
   displayName,
   EXTENSION_PRECEDENCE,
   extensionForMime,
@@ -24,9 +26,11 @@ import {
   isTextType,
   isValidName,
   parseBlockFile,
+  renameTarget,
   TYPE_EXTENSION,
   type BlockType,
 } from "../shared/blocks.js";
+import { findBlockLinks, rewriteBlockLinks } from "../shared/links.js";
 import { EDGE_STYLES, emptyCanvas, serializeCanvas, SIDES, type Canvas, type CanvasEdge, type CanvasNode, type CanvasView, type FileNode, type GroupNode, type Side } from "../shared/canvas.js";
 import type {
   AgentCommand,
@@ -224,6 +228,12 @@ export class ProjectRuntime {
    * content is recognised as a rename and keeps the old node's place.
    */
   private recentlyGone = new Map<string, { cand: RenameCandidate; node?: FileNode; edges?: CanvasEdge[]; at: number }>();
+  /**
+   * Block renames (old → new, in order) whose `[[links]]` in Markdown blocks
+   * are still to be rewritten: at once when nobody holds the lock, else when
+   * the turn or the outside agent's lock ends — before its commit.
+   */
+  private linkRenames: [string, string][] = [];
 
   private watcher: FSWatcher | null = null;
   private fsTimers = new Map<string, NodeJS.Timeout>();
@@ -799,6 +809,38 @@ export class ProjectRuntime {
     if (opts.force || text !== before) {
       this.broadcast({ type: "canvas.changed", canvas: this.view, error: this.canvasError, clientId: opts.clientId });
     }
+    if (!this.lock.locked) await this.flushLinkRenames();
+  }
+
+  /**
+   * Point `[[links]]` in every Markdown block at the blocks' new names after
+   * renames — whoever renamed them (the user, `think rename`, an agent moving
+   * the file). Unlocked it happens at once; during a turn or an outside agent's
+   * lock it waits for the post-turn steps / the unlock, so it never writes
+   * under a working agent, and lands in the same commit as the rename.
+   * Callers hold the queue.
+   */
+  private async flushLinkRenames(): Promise<void> {
+    if (!this.linkRenames.length) return;
+    const renames = this.linkRenames;
+    this.linkRenames = [];
+    const changed: string[] = [];
+    for (const b of [...this.blocks.values()]) {
+      if (b.type !== "markdown" || b.content === undefined || b.size > MAX_TEXT_BYTES) continue;
+      const pin = this.pinned.get(b.name);
+      if (pin?.draft !== undefined) pin.draft = rewriteBlockLinks(pin.draft, renames);
+      const next = rewriteBlockLinks(b.content, renames);
+      if (next === b.content) continue;
+      b.content = next;
+      b.hash = hashOf(next);
+      b.size = Buffer.byteLength(next);
+      await this.writeBlockFile(b, next);
+      // A protected block's links are think's to keep, not a change by the agent.
+      if (pin && pin.file === b.file) pin.bytes = Buffer.from(next);
+      changed.push(b.name);
+      this.broadcast({ type: "file.changed", block: this.blockInfo(b), origin: "external" });
+    }
+    if (changed.length) this.log.info("links follow renamed blocks", { renames: renames.length, blocks: changed.length });
   }
 
   /**
@@ -847,6 +889,7 @@ export class ProjectRuntime {
       this.touched.set(to, t);
     }
     this.log.info("block renamed", { from, to });
+    this.linkRenames.push([from, to]);
     this.broadcast({ type: "block.renamed", from, to });
     void this.moveDrawing(from, to).catch((err) => this.log.warn("could not move a drawing along with its block", { from, to, error: errorMessage(err) }));
     if (this.comments.some((c) => c.on === from) || this.pendingComments.length) {
@@ -1509,33 +1552,69 @@ export class ProjectRuntime {
   }
 
   /** The user renames a block: the file, its node and every connection follow. */
-  private async renameBlock(name: string, to: string): Promise<{ name: string }> {
+  private async renameBlock(name: string, to: string): Promise<{ name: string; title?: string }> {
     this.assertUnlocked();
     return this.renameBlockNow(name, to, "user");
   }
 
-  /** Rename a block now (the caller has checked who may). Callers hold the queue. */
-  private async renameBlockNow(name: string, to: string, origin: "user" | "agent" | "external"): Promise<{ name: string }> {
+  /**
+   * Rename a block now (the caller has checked who may). Callers hold the queue.
+   * `to` is a name (`tea-guide`: the file is renamed, any title cleared) or free
+   * text (`Tea guide 🍵`: kept as the title, and the file renamed to the text
+   * made a name — `tea-guide`, or `tea-guide-2` when that is taken).
+   */
+  private async renameBlockNow(name: string, to: string, origin: "user" | "agent" | "external"): Promise<{ name: string; title?: string }> {
     const b = this.blocks.get(name);
     if (!b) throw new UserError(`There is no block called "${name}".`);
-    if (typeof to !== "string" || !isValidName(to)) throw new UserError("Names use lowercase letters, digits and hyphens, like tea-flowchart.");
-    if (to === name) return { name };
-    if (this.takenNames().has(to)) throw new UserError(`There is already a block called “${displayName(to)}”.`);
-    if (this.view.nodes.some((n) => n.id === to)) throw new UserError(`“${to}” is already used by a group on this canvas.`);
-    const file = `${to}.${b.ext}`;
+    const target = typeof to === "string" ? renameTarget(to, name) : null;
+    if (!target) throw new UserError("Give the block a name.");
+    const text = cleanTitle(to)!;
+    const groups = new Set(this.view.nodes.filter((n) => n.type === "group").map((n) => n.id));
+    let next = target.name;
+    if (isValidName(text)) {
+      // A plain name, as before titles: it must be free.
+      if (next !== name && this.takenNames().has(next)) throw new UserError(`There is already a block called “${displayName(next)}”.`);
+      if (groups.has(next)) throw new UserError(`“${next}” is already used by a group on this canvas.`);
+    } else if (next !== name) {
+      const taken = new Set([...this.takenNames(), ...groups]);
+      taken.delete(name);
+      for (let i = 2, base = next; taken.has(next); i++) next = `${base}-${i}`;
+    }
+    const title = isValidName(text) || text === displayName(next) ? undefined : text;
+    if (next === name) {
+      this.lastValid = this.view;
+      this.setTitle(name, title);
+      await this.refreshView({ write: true, force: true });
+      this.scheduleAutosave();
+      return { name, ...(title ? { title } : {}) };
+    }
+    const file = `${next}.${b.ext}`;
     await fs.rename(path.join(this.dir, b.file), path.join(this.dir, file));
-    const entry: FileEntry = { ...b, name: to, file };
+    const entry: FileEntry = { ...b, name: next, file };
     this.files.delete(b.file);
     this.files.set(file, entry);
     this.recomputeBlocks();
-    this.lastValid = renameInCanvas(this.view, name, to, file);
-    this.canvasError = null;
-    this.movedName(name, to);
+    this.lastValid = renameInCanvas(this.view, name, next, file);
+    this.setTitle(next, title);
+    this.movedName(name, next);
     this.broadcast({ type: "file.changed", block: this.blockInfo(entry), origin });
     this.broadcast({ type: "file.deleted", name, file: b.file });
     await this.refreshView({ write: true, force: true });
     this.scheduleAutosave();
-    return { name: to };
+    return { name: next, ...(title ? { title } : {}) };
+  }
+
+  /** Set (or, with none, clear) a block's title in the layout we build on. */
+  private setTitle(name: string, title: string | undefined): void {
+    this.lastValid = {
+      ...this.lastValid,
+      nodes: this.lastValid.nodes.map((n) => {
+        if (n.id !== name || n.type !== "file") return n;
+        const { title: _old, ...rest } = n;
+        return title ? { ...rest, title } : rest;
+      }),
+    };
+    this.canvasError = null;
   }
 
   private takenNames(): Set<string> {
@@ -2371,6 +2450,7 @@ export class ProjectRuntime {
     if (g.timer) clearTimeout(g.timer);
     await this.rescanAll();
     await this.refreshView({ write: true, force: true });
+    await this.flushLinkRenames();
     const given = summary?.trim() || this.guestSummaries.get(g.by);
     this.guestSummaries.delete(g.by);
     const done = await commitWork(this.dir, {
@@ -2563,8 +2643,9 @@ export class ProjectRuntime {
         this.highlight(touched, by);
       },
       rename: async (name, to) => {
-        await this.renameBlockNow(name, to, origin);
-        this.highlight([to], by);
+        const r = await this.renameBlockNow(name, to, origin);
+        this.highlight([r.name], by);
+        return r;
       },
       remove: async (names) => {
         await this.deleteBlocksNow(names, origin);
@@ -2685,6 +2766,7 @@ export class ProjectRuntime {
           await this.rescanAll();
           const found = await this.enforceProtected();
           await this.refreshView({ write: true });
+          await this.flushLinkRenames();
           await this.commitAgentWork(attempt);
           return found;
         });
@@ -2737,6 +2819,7 @@ export class ProjectRuntime {
       await this.queue
         .run(async () => {
           await this.rescanAll();
+          await this.flushLinkRenames();
           await this.commitAgentWork(0);
         })
         .catch(() => {});
@@ -2747,6 +2830,7 @@ export class ProjectRuntime {
           await this.rescanAll();
           await this.enforceProtected();
           await this.refreshView({ write: true, force: true });
+          await this.flushLinkRenames();
           await this.commitAgentWork(0);
           await this.syncThinkFile({ repair: true });
           const end = await head(this.dir);
@@ -2952,6 +3036,14 @@ export class ProjectRuntime {
       const error = await this.deps.mermaid.validate(source);
       if (error) issues.push({ block: parsed.name, file, message: error });
     }
+    for (const file of changed) {
+      const parsed = parseBlockFile(file);
+      if (parsed?.type !== "markdown" || this.blocks.get(parsed.name)?.file !== file) continue;
+      // Only links the turn wrote: a dangling one that was there before is the user's.
+      const before = sinceHead ? ((await showFile(this.dir, sinceHead, file).catch(() => null))?.toString("utf8") ?? "") : "";
+      const message = this.danglingLinks(this.blocks.get(parsed.name)!.content ?? "", new Set(findBlockLinks(before).map((l) => l.target)));
+      if (message) issues.push({ block: parsed.name, file, message });
+    }
     let text: string | null = null;
     try {
       text = await fs.readFile(path.join(this.dir, "canvas.json"), "utf8");
@@ -2975,6 +3067,19 @@ export class ProjectRuntime {
     for (const c of this.conflicts) issues.push({ message: c });
     issues.push(...(await this.strayFiles(changed)));
     return issues;
+  }
+
+  /** `[[links]]` in a Markdown block that lead to no block (but those in `known`), described for the agent; null: none. */
+  private danglingLinks(md: string, known: ReadonlySet<string>): string | null {
+    const missing = [...new Set(findBlockLinks(md).map((l) => l.target))].filter((t) => !this.blocks.has(t) && !known.has(t));
+    if (!missing.length) return null;
+    const labels = new Map<string, string>();
+    for (const n of this.view.nodes) if (n.type === "file") labels.set(blockLabel(n.id, n).toLowerCase(), n.id);
+    const hint = (t: string) => {
+      const name = labels.get(t.toLowerCase()) ?? (this.blocks.has(t.replace(/\.[a-z]+$/i, "")) ? t.replace(/\.[a-z]+$/i, "") : undefined);
+      return name ? ` (did you mean [[${name}]]?)` : "";
+    };
+    return `links to blocks that do not exist: ${missing.map((t) => `[[${t}]]${hint(t)}`).join(", ")} — a link names a block by its file name without the extension, never its title; fix the link or remove the brackets.`;
   }
 
   /**

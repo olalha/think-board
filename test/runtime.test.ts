@@ -188,7 +188,7 @@ describe("renaming", () => {
     expect(canvas.edges[0]).toMatchObject({ fromNode: "tea-guide", toNode: "bob", label: "leads to" });
     expect(h.messages.some((m) => m.type === "block.renamed" && m.from === "harry" && m.to === "tea-guide")).toBe(true);
     await expect(send(h, { type: "block.rename", name: "bob", to: "tea-guide" })).rejects.toThrow(/already a block/);
-    await expect(send(h, { type: "block.rename", name: "bob", to: "Not Valid" })).rejects.toThrow(/lowercase/);
+    await expect(send(h, { type: "block.rename", name: "bob", to: "   " })).rejects.toThrow(/Give the block a name/);
   });
 
   it("keeps a block's place and connections when the agent renames it with git mv", async () => {
@@ -204,6 +204,105 @@ describe("renaming", () => {
     const moved = canvas.nodes.find((n: { id: string }) => n.id === "tea-guide");
     expect(moved).toMatchObject({ x: harry.x, y: harry.y, file: "tea-guide.md" });
     expect(canvas.edges).toEqual([expect.objectContaining({ id: "e1", fromNode: "tea-guide", toNode: "bob" })]);
+  });
+});
+
+describe("titles and block links", () => {
+  const readCanvas = async (h: Harness) => JSON.parse(await fs.readFile(path.join(h.dir, "canvas.json"), "utf8"));
+  const nodeOf = async (h: Harness, id: string) => (await readCanvas(h)).nodes.find((n: { id: string }) => n.id === id);
+  const read = (h: Harness, file: string) => fs.readFile(path.join(h.dir, file), "utf8");
+  const LINKS = "# Harry\n\nSee [[bob]] and [[bob|Bob's list]], not [[bobby]].\n\n`[[bob]]`\n\n```\n[[bob]]\n```\n";
+  const LINKED = "# Harry\n\nSee [[tea-guide]] and [[tea-guide|Bob's list]], not [[bobby]].\n\n`[[bob]]`\n\n```\n[[bob]]\n```\n";
+
+  it("sets and clears a title by renaming; the file takes the title made a name", async () => {
+    h = await makeHarness();
+    await send(h, { type: "block.create", blockType: "markdown", x: 0, y: 0 }); // harry
+    await expect(send(h, { type: "block.rename", name: "harry", to: "Tea plan 🍵" })).resolves.toEqual({ name: "tea-plan", title: "Tea plan 🍵" });
+    expect(await fs.readdir(h.dir)).toContain("tea-plan.md");
+    expect(await nodeOf(h, "tea-plan")).toMatchObject({ file: "tea-plan.md", title: "Tea plan 🍵" });
+    // Same name: only the title changes.
+    await expect(send(h, { type: "block.rename", name: "tea-plan", to: "  Tea\nplan! " })).resolves.toEqual({ name: "tea-plan", title: "Tea plan!" });
+    expect(await nodeOf(h, "tea-plan")).toMatchObject({ title: "Tea plan!" });
+    // The plain readable name or the name itself: no title.
+    await expect(send(h, { type: "block.rename", name: "tea-plan", to: "Tea plan" })).resolves.toEqual({ name: "tea-plan" });
+    expect(await nodeOf(h, "tea-plan")).not.toHaveProperty("title");
+    await send(h, { type: "block.rename", name: "tea-plan", to: "🚀" });
+    expect(await nodeOf(h, "tea-plan")).toMatchObject({ title: "🚀" });
+    await expect(send(h, { type: "block.rename", name: "tea-plan", to: "tea-guide" })).resolves.toEqual({ name: "tea-guide" });
+    expect(await nodeOf(h, "tea-guide")).not.toHaveProperty("title");
+  });
+
+  it("keeps names unique: a title whose name is taken gets the next free one", async () => {
+    h = await makeHarness();
+    await send(h, { type: "block.create", blockType: "markdown", x: 0, y: 0 }); // harry
+    await send(h, { type: "block.create", blockType: "markdown", x: 600, y: 0 }); // bob
+    await expect(send(h, { type: "block.rename", name: "bob", to: "Harry" })).resolves.toEqual({ name: "harry-2", title: "Harry" });
+    await expect(send(h, { type: "block.rename", name: "harry-2", to: "harry" })).rejects.toThrow(/already a block/);
+    // Its own name is not "taken": retitling keeps the file.
+    await expect(send(h, { type: "block.rename", name: "harry-2", to: "Harry!" })).resolves.toEqual({ name: "harry-2", title: "Harry!" });
+  });
+
+  it("the user's rename rewrites [[links]] in every Markdown block, outside code, in the same save", async () => {
+    h = await makeHarness();
+    await send(h, { type: "block.create", blockType: "markdown", x: 0, y: 0 }); // harry
+    await send(h, { type: "block.create", blockType: "markdown", x: 600, y: 0 }); // bob
+    await send(h, { type: "user.edit", name: "harry", content: LINKS });
+    await send(h, { type: "canvas.save" });
+    await send(h, { type: "block.rename", name: "bob", to: "Tea guide" });
+    expect(await read(h, "harry.md")).toBe(LINKED);
+    expect(h.messages.some((m) => m.type === "file.changed" && m.block.name === "harry" && m.block.content === LINKED)).toBe(true);
+    await send(h, { type: "canvas.save" });
+    const files = (await git(h.dir, ["show", "--name-status", "--format=", "HEAD"])).trim();
+    expect(files).toMatch(/harry\.md/);
+    expect(files).toMatch(/tea-guide\.md/);
+  });
+
+  it("think rename by the agent rewrites the links and commits them with the rename", async () => {
+    h = await makeHarness();
+    await send(h, { type: "block.create", blockType: "markdown", x: 0, y: 0 }); // harry
+    await send(h, { type: "block.create", blockType: "markdown", x: 600, y: 0 }); // bob
+    await send(h, { type: "user.edit", name: "harry", content: LINKS });
+    await send(h, { type: "agent.prompt", text: 'run: think rename bob "Tea guide"' });
+    await h.waitIdle();
+    const runs = await h.runs();
+    expect(runs[0].code).toBe(0);
+    expect(runs[0].out).toContain("Renamed “Bob” to “Tea guide”, file tea-guide.md");
+    expect(await read(h, "harry.md")).toBe(LINKED);
+    expect((await log(h))[0]).toMatch(/^agent\|/);
+    const files = (await git(h.dir, ["show", "--name-status", "--format=", "HEAD"])).trim();
+    expect(files).toMatch(/harry\.md/);
+    expect(files).toMatch(/tea-guide\.md/);
+    expect((await git(h.dir, ["status", "--porcelain"])).trim()).toBe("");
+  });
+
+  it("an agent moving the file itself gets its links rewritten too — protected blocks included", async () => {
+    h = await makeHarness();
+    await send(h, { type: "block.create", blockType: "markdown", x: 0, y: 0 }); // harry
+    await send(h, { type: "block.create", blockType: "markdown", x: 600, y: 0 }); // bob
+    await send(h, { type: "user.edit", name: "harry", content: LINKS });
+    await send(h, { type: "user.layout", ops: [{ op: "node.protect", id: "harry", protected: true }] });
+    await send(h, { type: "agent.prompt", text: "rename:bob:tea-guide" });
+    await h.waitIdle();
+    expect(await read(h, "harry.md")).toBe(LINKED);
+    // think's own rewrite of a protected block is not the agent breaking the protection.
+    expect(h.messages.filter((m) => m.type === "validation.errors").at(-1)).toMatchObject({ report: { issues: [] } });
+    const files = (await git(h.dir, ["show", "--name-status", "--format=", "HEAD"])).trim();
+    expect(files).toMatch(/harry\.md/);
+  });
+
+  it("reports links to blocks that do not exist after a turn", async () => {
+    h = await makeHarness({ maxAttempts: 0 });
+    await send(h, { type: "block.create", blockType: "markdown", x: 0, y: 0 }); // harry
+    await send(h, { type: "block.rename", name: "harry", to: "Big plan!" });
+    await send(h, { type: "agent.prompt", text: "run: printf '# Note\\n[[nowhere]] [[big-plan]] [[Big plan!]] `[[in-code]]`\\n' > note.md" });
+    await h.waitIdle();
+    const last = h.messages.filter((m) => m.type === "validation.errors").at(-1);
+    const issues = last?.type === "validation.errors" ? last.report.issues : [];
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toMatchObject({ block: "note", file: "note.md" });
+    expect(issues[0].message).toContain("[[nowhere]]");
+    expect(issues[0].message).toContain("[[Big plan!]] (did you mean [[big-plan]]?)");
+    expect(issues[0].message).not.toContain("in-code");
   });
 });
 
