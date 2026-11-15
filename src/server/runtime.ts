@@ -42,6 +42,7 @@ import type {
   LockState,
   PasteBlock,
   ProviderInfo,
+  ReferenceFile,
   ServerMessage,
   ValidationIssue,
   ValidationReport,
@@ -98,6 +99,7 @@ import { COMMENTS_FILE, MAX_COMMENT, parseComments, serializeComments } from "./
 import { BASE_FILE_RE, DRAWINGS_DIR, drawingSchema, readDrawing, renderDrawing, sidecarDir } from "./drawings.js";
 import { DRAWING_FORMAT, type Drawing } from "../shared/drawing.js";
 import { errorMessage, hashOf, newId, SerialQueue, type Logger } from "./util.js";
+import { cleanFilePath, FILES_DIR, freeFilePath, listReferenceFiles, MAX_REFERENCE_FILE_BYTES, pruneEmptyDirs, resolveFilePath } from "./reference-files.js";
 
 export interface ClientConn {
   id: string;
@@ -226,6 +228,10 @@ export class ProjectRuntime {
   private recentlyGone = new Map<string, { cand: RenameCandidate; node?: FileNode; edges?: CanvasEdge[]; at: number }>();
 
   private watcher: FSWatcher | null = null;
+  /** The files/ folder's listing, as tabs last heard it. */
+  private refFiles: ReferenceFile[] = [];
+  private refFilesKey = "[]";
+  private refTimer: NodeJS.Timeout | null = null;
   private fsTimers = new Map<string, NodeJS.Timeout>();
   private autosaveTimer: NodeJS.Timeout | null = null;
   private closeTimer: NodeJS.Timeout | null = null;
@@ -284,6 +290,7 @@ export class ProjectRuntime {
     await this.readReadme();
     this.lastTurn = await readLastTurn(path.join(this.thinkDir, "turns.jsonl"));
     await this.scanFiles();
+    await this.syncReferenceFiles();
     await this.syncCanvasFile({ initial: true });
 
     if (this.state.turnInProgress) await this.recoverInterruptedTurn();
@@ -442,6 +449,8 @@ export class ProjectRuntime {
     for (const t of this.mermaidTimers.values()) clearTimeout(t);
     await this.watcher?.close();
     this.watcher = null;
+    if (this.refTimer) clearTimeout(this.refTimer);
+    this.refTimer = null;
     await this.agentRequests?.stop();
     this.agentRequests = null;
     this.finalizeStreaming();
@@ -493,6 +502,7 @@ export class ProjectRuntime {
       comments: this.shownComments(),
       guests: this.room.info(this.guest?.by ?? null),
       guestThreads: this.room.threads(),
+      files: this.refFiles,
     };
   }
 
@@ -630,18 +640,21 @@ export class ProjectRuntime {
 
   private startWatcher(): void {
     const dir = this.dir;
+    const inFiles = (rel: string) => rel === FILES_DIR || rel.startsWith(FILES_DIR + path.sep);
     this.watcher = chokidar.watch(dir, {
       ignoreInitial: true,
-      depth: 0,
-      // Top-level files only; nothing hidden (.git, .think, .annotations, …).
+      depth: 9,
+      // Top-level files, and the files/ folder; nothing hidden (.git, .think, .annotations, …).
       ignored: (p: string) => {
         const rel = path.relative(dir, p);
         if (!rel) return false;
+        if (inFiles(rel)) return rel.split(path.sep).some((s) => s.startsWith("."));
         return rel.includes(path.sep) || rel.startsWith(".");
       },
       awaitWriteFinish: { stabilityThreshold: 120, pollInterval: 30 },
     });
     this.watcher.on("all", (event, p) => {
+      if (inFiles(path.relative(dir, p))) return this.scheduleReferenceSync();
       if (event === "addDir" || event === "unlinkDir") return;
       const file = path.basename(p);
       const prev = this.fsTimers.get(file);
@@ -655,6 +668,88 @@ export class ProjectRuntime {
       );
     });
     this.watcher.on("error", (err) => this.log.error("watcher error", { error: errorMessage(err) }));
+  }
+
+  // ================================================================== files/ (reference material)
+
+  /** Re-list files/ and tell the tabs when the listing changed. */
+  private async syncReferenceFiles(): Promise<void> {
+    const files = await listReferenceFiles(this.dir);
+    const key = JSON.stringify(files);
+    if (key === this.refFilesKey) return;
+    this.refFiles = files;
+    this.refFilesKey = key;
+    this.broadcast({ type: "files.changed", files });
+  }
+
+  /** A change under files/ seen by the watcher: one re-list for a burst of them. */
+  private scheduleReferenceSync(): void {
+    if (this.refTimer) clearTimeout(this.refTimer);
+    this.refTimer = setTimeout(() => {
+      this.refTimer = null;
+      void this.queue
+        .run(async () => {
+          if (this.closed) return;
+          if (this.guest) this.touchGuest();
+          const before = this.refFilesKey;
+          await this.syncReferenceFiles();
+          if (before !== this.refFilesKey && !this.lock.locked) this.scheduleAutosave();
+        })
+        .catch((err) => this.log.error("files/ sync failed", { error: errorMessage(err) }));
+    }, 80);
+  }
+
+  /** The user's own change to files/: the tabs hear at once, History at the next save. */
+  private async referenceChanged(): Promise<void> {
+    await this.syncReferenceFiles();
+    this.scheduleAutosave();
+  }
+
+  /**
+   * Put an uploaded file in files/ at `rel`. An existing file keeps its name:
+   * the upload becomes "name (2).ext" unless `replace` is set.
+   */
+  putReferenceFile(rel: string, data: Buffer, opts: { replace?: boolean } = {}): Promise<{ path: string }> {
+    return this.queue.run(async () => {
+      this.assertUnlocked();
+      if (data.length > MAX_REFERENCE_FILE_BYTES) throw new UserError(`Files can be up to ${MAX_REFERENCE_FILE_BYTES / 1048576} MB.`);
+      const target = opts.replace ? cleanFilePath(rel) : await freeFilePath(this.dir, rel);
+      const { full, kind } = await resolveFilePath(this.dir, target);
+      if (kind === "dir" || kind === "other") throw new UserError(`"${target}" is a folder, not a file.`);
+      await fs.mkdir(path.dirname(full), { recursive: true });
+      await writeAtomic(full, data, this.thinkDir);
+      await this.referenceChanged();
+      return { path: target };
+    });
+  }
+
+  deleteReferenceFile(rel: string): Promise<void> {
+    return this.queue.run(async () => {
+      this.assertUnlocked();
+      const { full, kind } = await resolveFilePath(this.dir, rel);
+      if (kind !== "file") throw new UserError(kind === "missing" ? "That file is no longer there." : "Only files can be deleted here.");
+      await fs.rm(full);
+      await pruneEmptyDirs(this.dir, full);
+      await this.referenceChanged();
+    });
+  }
+
+  /** Rename or move a file within files/ (never over another one). */
+  moveReferenceFile(from: string, to: string): Promise<{ path: string }> {
+    return this.queue.run(async () => {
+      this.assertUnlocked();
+      const src = await resolveFilePath(this.dir, from);
+      if (src.kind !== "file") throw new UserError(src.kind === "missing" ? "That file is no longer there." : "Only files can be renamed here.");
+      const target = cleanFilePath(to);
+      if (target === cleanFilePath(from)) return { path: target };
+      const dst = await resolveFilePath(this.dir, target);
+      if (dst.kind !== "missing") throw new UserError(`There is already ${dst.kind === "dir" ? "a folder" : "a file"} called "${target}".`);
+      await fs.mkdir(path.dirname(dst.full), { recursive: true });
+      await fs.rename(src.full, dst.full);
+      await pruneEmptyDirs(this.dir, src.full);
+      await this.referenceChanged();
+      return { path: target };
+    });
   }
 
   /** Bring our view of one path up to date with the disk. Runs in the queue. */
@@ -726,6 +821,7 @@ export class ProjectRuntime {
     );
     for (const file of all) await this.syncPath(file);
     await this.syncCanvasFile();
+    await this.syncReferenceFiles();
   }
 
   private async syncCanvasFile(opts: { initial?: boolean } = {}): Promise<void> {
@@ -2979,20 +3075,21 @@ export class ProjectRuntime {
 
   /**
    * Files the turn left where they do not belong: the top level holds blocks,
-   * canvas.json and README.md only; scratch work goes in work/.
+   * canvas.json and README.md only; scratch work goes in work/, reference
+   * files (and exports that are not blocks) in files/.
    */
   private async strayFiles(changed: Set<string>): Promise<ValidationIssue[]> {
     const issues: ValidationIssue[] = [];
     const allowed = new Set(["canvas.json", "README.md", THINK_FILE, COMMENTS_FILE, "AGENTS.md", "CLAUDE.md", ".gitignore"]);
     const seenDirs = new Set<string>();
     for (const f of changed) {
-      if (f.startsWith(".") || f.startsWith("work/") || allowed.has(f) || parseBlockFile(f)) continue;
+      if (f.startsWith(".") || f.startsWith("work/") || f.startsWith(`${FILES_DIR}/`) || allowed.has(f) || parseBlockFile(f)) continue;
       if (!(await exists(path.join(this.dir, f)))) continue; // deleted in the turn
       if (f.includes("/")) {
         const top = f.split("/")[0];
         if (seenDirs.has(top)) continue;
         seenDirs.add(top);
-        issues.push({ file: `${top}/`, message: `folder "${top}/" is not part of the canvas; keep scratch work in work/ (move it there, or delete it).` });
+        issues.push({ file: `${top}/`, message: `folder "${top}/" is not part of the canvas; keep scratch work in work/ and files that are not blocks (exports, data) in files/ (move it, or delete it).` });
         continue;
       }
       const m = /^(.+)\.(md|mmd|html|png|jpe?g|webp|gif)$/i.exec(f);
@@ -3000,7 +3097,7 @@ export class ProjectRuntime {
         file: f,
         message: m
           ? `"${f}" does not show on the canvas: block names are lowercase letters, digits and hyphens. Rename it (e.g. "${toSlug(m[1])}.${m[2].toLowerCase()}") or move it into work/.`
-          : `"${f}" is not a block; the top level holds only blocks, canvas.json and README.md. Move it into work/ (or delete it).`,
+          : `"${f}" is not a block; the top level holds only blocks, canvas.json and README.md. Move it into work/ (scratch) or files/ (a file for the user), or delete it.`,
       });
     }
     return issues;

@@ -18,7 +18,7 @@ export function emptySummary(): ChangeSummary {
 }
 
 export function isEmptySummary(s: ChangeSummary): boolean {
-  return !s.added.length && !s.edited.length && !s.removed.length && !s.renamed.length && !s.readme && !s.work && !s.other.length && !s.layout.length && !s.comments?.length && !s.drawn?.length;
+  return !s.added.length && !s.edited.length && !s.removed.length && !s.renamed.length && !s.readme && !s.work && !s.other.length && !s.layout.length && !s.comments?.length && !s.drawn?.length && !s.files?.length;
 }
 
 const name = (file: string) => parseBlockFile(file)?.name;
@@ -152,6 +152,11 @@ export async function summarizeRange(dir: string, base: string | null, head: str
       s.work++;
       continue;
     }
+    if (c.path.startsWith("files/")) {
+      const p = c.path.slice("files/".length);
+      if (!(s.files ??= []).includes(p)) s.files.push(p);
+      continue;
+    }
     if (c.path.startsWith(".drawings/")) {
       const n = c.path.split("/")[1];
       if (n && !(s.drawn ??= []).includes(n)) s.drawn.push(n);
@@ -201,6 +206,7 @@ export function summaryLines(s: ChangeSummary): string[] {
   if (s.renamed.length) lines.push(`- Renamed: ${s.renamed.map(([a, b]) => `${a} → ${b}`).join(", ")}`);
   if (s.removed.length) lines.push(`- Deleted blocks: ${s.removed.join(", ")}`);
   if (s.readme) lines.push("- README.md changed");
+  if (s.files?.length) lines.push(`- Changed in files/: ${s.files.slice(0, 12).join(", ")}${s.files.length > 12 ? ` and ${s.files.length - 12} more` : ""}`);
   if (s.work) lines.push(`- ${s.work} file${s.work === 1 ? "" : "s"} changed in work/`);
   if (s.other.length) lines.push(`- Other files: ${s.other.join(", ")}`);
   for (const l of s.layout) lines.push(`- ${l}`);
@@ -235,6 +241,7 @@ export function briefSummary(s: ChangeSummary, max = 6): string {
   }
   if (s.readme) parts.push("updated the README");
   if (s.other.length) parts.push(`changed ${s.other.join(", ")}`);
+  if (s.files?.length) parts.push(s.files.length === 1 ? `changed files/${s.files[0]}` : `${s.files.length} files in files/`);
   if (s.work) parts.push(`${s.work} ${s.work === 1 ? "file" : "files"} in work/`);
   if (parts.length <= max) return parts.join("; ");
   return `${parts.slice(0, max - 1).join("; ")}; and ${parts.length - max + 1} more changes`;

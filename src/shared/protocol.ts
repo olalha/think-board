@@ -54,7 +54,21 @@ export interface ChangeSummary {
   comments?: string[];
   /** Image blocks drawn on (their drawing changed). */
   drawn?: string[];
+  /** Paths changed in the files/ folder (relative to it). */
+  files?: string[];
 }
+
+/** A file in the canvas's files/ folder: reference material that is not a block. */
+export interface ReferenceFile {
+  /** Relative to files/, "/"-separated ("data/sales.csv"). */
+  path: string;
+  size: number;
+  /** Last modified, Unix ms. */
+  mtime: number;
+}
+
+/** The largest file the Files tab accepts (an upload's whole body). */
+export const MAX_REFERENCE_FILE_BYTES = 50 * 1024 * 1024;
 
 /** One moment in a canvas's history (see server/history.ts). */
 export interface HistoryEntry {
@@ -285,6 +299,8 @@ export type ServerMessage =
       /** Outside agents that joined (or left) this canvas, and their tabs' lines (the latest of each). */
       guests?: GuestInfo[];
       guestThreads?: Record<string, GuestEntry[]>;
+      /** The files/ folder's contents (absent from older servers). */
+      files?: ReferenceFile[];
     }
   | { type: "project.meta"; name: string; provider: ProviderInfo; settings: CanvasSettings }
   | { type: "readme.changed"; content: string | null }
@@ -301,6 +317,8 @@ export type ServerMessage =
   | { type: "validation.errors"; report: ValidationReport }
   | { type: "mermaid.lastValid"; name: string; source: string | null }
   | { type: "conflicts.changed"; conflicts: string[] }
+  /** The files/ folder changed (an upload, a rename, the agent): its whole listing. */
+  | { type: "files.changed"; files: ReferenceFile[] }
   | { type: "agent.status"; status: AgentStatus }
   | { type: "agent.turn"; running: boolean }
   | { type: "agent.commands"; commands: AgentCommand[] }

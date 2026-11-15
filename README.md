@@ -44,8 +44,8 @@ on your laptop or a server.
 - **Every change is kept.** Each edit — yours, the agent's, anyone's — is a git
   commit. History previews any moment and restores it.
 - **Made for thinking:** frames, links, saved views and a presentation mode,
-  drawing on images, quick jump (⌘K), and a phone layout for reading and
-  chatting.
+  drawing on images, reference files (spreadsheets, documents, data) the agent
+  can read, quick jump (⌘K), and a phone layout for reading and chatting.
 - **Yours to run.** Two Docker containers and one data folder. The agents run
   isolated in their own container and sign in with your Claude or ChatGPT plan,
   or an API key.

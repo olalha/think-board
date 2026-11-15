@@ -29,13 +29,15 @@ export function setProviderAuth(id: string, auth: "login" | "api-key"): Promise<
   return sendJSON("POST", `/api/providers/${encodeURIComponent(id)}/auth`, { auth });
 }
 
-/** Upload an image block. XHR rather than fetch, for upload progress (0–1). */
-/** POST a file with upload progress (fetch can't report it). Resolves with the JSON body. */
-function postFile<T>(url: string, file: Blob, onProgress?: (p: number) => void): Promise<T> {
+/**
+ * POST (or PUT) a file with upload progress (fetch can't report it). Resolves
+ * with the JSON body. `rawType`: send it as application/octet-stream whatever it is.
+ */
+function postFile<T>(url: string, file: Blob, onProgress?: (p: number) => void, opts: { method?: "POST" | "PUT"; rawType?: boolean } = {}): Promise<T> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", url);
-    xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+    xhr.open(opts.method ?? "POST", url);
+    xhr.setRequestHeader("Content-Type", opts.rawType ? "application/octet-stream" : file.type || "application/octet-stream");
     xhr.upload.onprogress = (e) => e.lengthComputable && onProgress?.(e.loaded / e.total);
     xhr.onerror = () => reject(new ApiError("The upload failed — check the connection."));
     xhr.onload = () => {
@@ -46,6 +48,7 @@ function postFile<T>(url: string, file: Blob, onProgress?: (p: number) => void):
         /* empty or non-JSON body */
       }
       if (xhr.status >= 200 && xhr.status < 300 && body) resolve(body);
+      else if (xhr.status === 413) reject(new ApiError("That file is too large to upload."));
       else reject(new ApiError(body?.error ?? `Upload failed (${xhr.status})`));
     };
     xhr.send(file);
@@ -75,6 +78,33 @@ export function preloadImage(url: string): Promise<void> {
     img.src = url;
     void img.decode?.().then(resolve, resolve);
   });
+}
+
+// ---- the canvas's files/ folder (the Files tab)
+
+const refBase = (slug: string) => `/api/projects/${slug}/reference-files`;
+const encodePath = (p: string) => p.split("/").map(encodeURIComponent).join("/");
+
+/** A file in files/: inline (previews) or as a download. */
+export function referenceFileUrl(slug: string, path: string, opts: { download?: boolean; version?: number } = {}): string {
+  const q = new URLSearchParams();
+  if (opts.download) q.set("download", "1");
+  if (opts.version) q.set("v", String(opts.version));
+  const qs = q.toString();
+  return `${refBase(slug)}/${encodePath(path)}${qs ? `?${qs}` : ""}`;
+}
+
+/** Upload into files/ at `path` → where it went ("name (2).ext" when the name was taken). */
+export function uploadReferenceFile(slug: string, path: string, file: Blob, onProgress?: (p: number) => void): Promise<{ path: string }> {
+  return postFile(`${refBase(slug)}/${encodePath(path)}`, file, onProgress, { method: "PUT", rawType: true });
+}
+
+export function moveReferenceFile(slug: string, path: string, to: string): Promise<{ path: string }> {
+  return sendJSON("PATCH", `${refBase(slug)}/${encodePath(path)}`, { to });
+}
+
+export async function deleteReferenceFile(slug: string, path: string): Promise<void> {
+  await handle(await fetch(`${refBase(slug)}/${encodePath(path)}`, { method: "DELETE" }));
 }
 
 export function fileUrl(slug: string, file: string, version?: string): string {

@@ -23,6 +23,10 @@ How versions and releases work: "Versioning and releases" in
 - Pressing Z again on a very tall or wide block zooms in on its start so the text is
   readable; a third press fits it whole again.
 - Drag the ends of a selected arrow to attach it to another side or another block.
+- A **Files** tab in the side panel keeps reference material that isn't a block
+  (spreadsheets, documents, archives, data) in the canvas's `files/` folder: upload or drop
+  files, preview text, CSV and images, download, rename, delete. The agent reads them and
+  can leave exports there.
 
 ## 0.6.4
 

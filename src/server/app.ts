@@ -9,6 +9,11 @@
 //   POST /api/projects/:slug/images        upload an image (raw body) → new block, or ?replace=<name>
 //   GET  /api/projects/:slug/drawings/:name/base   a drawing's original image (?file=base-….png: that one)
 //   POST /api/projects/:slug/drawings/:name/base   a photo to become a drawing's page (raw body) → {file, width, height}
+//   GET  /api/projects/:slug/reference-files          the files/ folder: [{path, size, mtime}]
+//   GET  /api/projects/:slug/reference-files/<path>   one file (?download: as an attachment)
+//   PUT  /api/projects/:slug/reference-files/<path>   upload (raw body, octet-stream) → {path}; ?replace=1 overwrites
+//   PATCH /api/projects/:slug/reference-files/<path>  rename / move {to} → {path}
+//   DELETE /api/projects/:slug/reference-files/<path> delete
 //   POST /api/projects/:slug/beacon        last-gasp autosave from a closing tab (sendBeacon)
 //   GET  /ws/projects/:slug                the project's WebSocket (see shared/protocol.ts)
 //   GET  /render/:slug/:block              reserved render-only route (client-side)
@@ -33,6 +38,7 @@ import type { ProjectManager } from "./manager.js";
 import { SLUG_RE, UserError, type ProjectStore } from "./projects.js";
 import { NewerFormatError } from "./think-file.js";
 import { BASE_FILE_RE, readDrawing, sidecarDir } from "./drawings.js";
+import { contentDisposition, listReferenceFiles, MAX_REFERENCE_FILE_BYTES, previewMime, resolveFilePath } from "./reference-files.js";
 import type { ClientConn, ProjectRuntime } from "./runtime.js";
 import { errorMessage, newId } from "./util.js";
 
@@ -344,6 +350,76 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       if (!Buffer.isBuffer(body) || body.length === 0) throw new UserError("Send the image as the request body.");
       const runtime = await runtimeFor(slug);
       return await runtime.putDrawingBase(name, body, String(req.headers["content-type"] ?? "").split(";")[0].trim());
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+
+  // ---- the files/ folder (reference material that is not a block) ------------
+  const FILES_ROUTE = "/api/projects/:slug/reference-files";
+  const filePath = (req: FastifyRequest) => (req.params as { "*": string })["*"] ?? "";
+
+  app.get(FILES_ROUTE, async (req, reply) => {
+    const { slug } = req.params as { slug: string };
+    if (!SLUG_RE.test(slug) || !(await store.exists(slug))) return reply.code(404).send({ error: "Not found." });
+    return { files: await listReferenceFiles(store.dir(slug)) };
+  });
+
+  app.get(`${FILES_ROUTE}/*`, async (req, reply) => {
+    const { slug } = req.params as { slug: string };
+    if (!SLUG_RE.test(slug)) return reply.code(404).send({ error: "Not found." });
+    let full: string;
+    try {
+      const r = await resolveFilePath(store.dir(slug), filePath(req));
+      if (r.kind !== "file") return reply.code(404).send({ error: "Not found." });
+      full = r.full;
+    } catch (err) {
+      return fail(reply, err);
+    }
+    const name = path.basename(full);
+    const download = (req.query as { download?: string }).download !== undefined;
+    const stat = await fs.promises.stat(full);
+    // Previews only for plain types; anything else is a download whatever was asked.
+    const mime = previewMime(name);
+    reply.header("Content-Type", mime);
+    reply.header("Content-Length", stat.size);
+    reply.header("Content-Disposition", contentDisposition(download || mime === "application/octet-stream" ? "attachment" : "inline", name));
+    reply.header("Content-Security-Policy", "sandbox");
+    reply.header("X-Content-Type-Options", "nosniff");
+    reply.header("Cache-Control", "no-cache");
+    return reply.send(fs.createReadStream(full));
+  });
+
+  app.put(`${FILES_ROUTE}/*`, { bodyLimit: MAX_REFERENCE_FILE_BYTES }, async (req, reply) => {
+    const { slug } = req.params as { slug: string };
+    try {
+      const body = req.body ?? Buffer.alloc(0);
+      if (!Buffer.isBuffer(body)) throw new UserError("Send the file as the request body (application/octet-stream).");
+      const runtime = await runtimeFor(slug);
+      return await runtime.putReferenceFile(filePath(req), body, { replace: (req.query as { replace?: string }).replace === "1" });
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+
+  app.patch(`${FILES_ROUTE}/*`, async (req, reply) => {
+    const { slug } = req.params as { slug: string };
+    try {
+      const to = (req.body as { to?: unknown } | null)?.to;
+      if (typeof to !== "string") throw new UserError("Say where the file goes: {to}.");
+      const runtime = await runtimeFor(slug);
+      return await runtime.moveReferenceFile(filePath(req), to);
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+
+  app.delete(`${FILES_ROUTE}/*`, async (req, reply) => {
+    const { slug } = req.params as { slug: string };
+    try {
+      const runtime = await runtimeFor(slug);
+      await runtime.deleteReferenceFile(filePath(req));
+      return { ok: true };
     } catch (err) {
       return fail(reply, err);
     }
