@@ -7,6 +7,9 @@ How versions and releases work: "Versioning and releases" in
 
 ## Unreleased
 
+- **Canvas format 4.** Opening a canvas upgrades it (committed as the app);
+  an older think then refuses it rather than dropping PDF blocks and block
+  titles from its layout.
 - Blocks can have free-text titles (any characters, emoji too): renaming to text keeps it as
   the title and renames the file to match; `[[block-name]]` links in Markdown blocks follow
   every rename, and the agent is told about links to blocks that do not exist.
