@@ -13,7 +13,7 @@ A fresh install opens with the canvas **Welcome to think** (from
 
 ```
 browser ──WebSocket/HTTP──▶ Fastify server ──▶ ProjectManager ──▶ ProjectRuntime (one per open canvas)
-                                                                   ├─ chokidar watcher (top-level files only)
+                                                                   ├─ chokidar watcher (top-level files, and files/)
                                                                    ├─ canvas model: parse · lint · reconcile
                                                                    ├─ git (plain CLI)
                                                                    ├─ MermaidValidator (jsdom worker thread)
@@ -39,6 +39,7 @@ outside agents ─ bin/think ── files in ROOT/guests/ ──▶ GuestBridge 
 | `src/server/agent/login.ts` | the provider-agnostic login terminal (node-pty) |
 | `src/server/agent/process.ts`, `runner.ts` | start processes locally or in the agents container over a Unix socket |
 | `src/server/changes.ts` | what changed between two commits, in words (change notes, History) |
+| `src/server/reference-files.ts` | the `files/` folder (reference files, the Files tab): safe paths, listing |
 | `src/server/history.ts` | History: commits grouped into moments, snapshots of the past |
 | `src/server/requests.ts` | the `think` command's request folders (request and answer files) |
 | `src/server/commands.ts`, `canvas-ops.ts` | the `think` command's canvas commands: who may, the messages; the layout operations (pure) |
@@ -76,6 +77,20 @@ History (a git commit as `user`): a fixed time after the first unsaved edit
 edits do not postpone it), on *Save now* (⌘/Ctrl+S or the status button), when
 History is opened or refreshed, before every agent turn, and when the canvas
 closes.
+
+## Reference files (`files/`)
+
+A canvas's `files/` folder (subfolders allowed) holds material that is not a
+block: spreadsheets, documents, archives, data. The side panel's Files tab
+lists, uploads (up to `MAX_REFERENCE_FILE_BYTES`, 50 MB, per file), previews,
+downloads, renames and deletes them over HTTP (`/api/projects/<slug>/reference-files`);
+changes are refused while the canvas is locked, like every user mutation. The
+watcher re-lists the folder on any change below it — the agent's too — and
+sends tabs the whole list (`files.changed`). Paths from requests never leave the
+folder: no `..`, absolute or hidden parts, and no symlinks on the way.
+Downloads are attachments; only images and plain text are served inline, under
+`Content-Security-Policy: sandbox`. The folder is committed like the rest of the
+canvas (History restores blocks, not these files; git keeps them).
 
 ## Canvas format and upgrades
 

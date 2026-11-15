@@ -46,7 +46,8 @@ and run `think read` (what is where).
 | `canvas.json` | The layout: where blocks are, links, frames, saved views. Change it with think commands. |
 | `comments.json` | The user's comments (`think comments`). |
 | `think.json` | The canvas's name and settings, managed by the app. Leave it alone. |
-| `work/` | Scratch space: notes, downloads, scripts, data. Never shown on the canvas. |
+| `files/` | The user's reference files (spreadsheets, documents, data), shown in the app's Files tab. Read them when relevant. Put files for the user that aren't blocks here (exports, data). |
+| `work/` | Your scratch space: notes, downloads, scripts. Never shown to the user. |
 
 Anything else at the top level is flagged. Never touch `.think/` (the app's
 private state) or `.drawings/` (drawings on images — see below), and do not
