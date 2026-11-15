@@ -34,7 +34,7 @@ import {
   Workflow,
   X,
 } from "lucide-react";
-import { displayName, type BlockType } from "../../shared/blocks";
+import { blockLabel, displayName, type BlockType } from "../../shared/blocks";
 import { groupMembers, type CanvasView, type ViewList } from "../../shared/canvas";
 import type { HistoryEntry, HistorySnapshot } from "../../shared/protocol";
 import { MarkdownView } from "../blocks/renderers";
@@ -137,7 +137,9 @@ function Outline() {
   const lastTurn = useBoard((s) => s.lastTurn);
   const [q, setQ] = useState("");
   const changed = new Set(lastTurn?.changed ?? []);
-  const match = (name: string) => !q || displayName(name).toLowerCase().includes(q.toLowerCase()) || (blocks[name]?.content ?? "").toLowerCase().includes(q.toLowerCase());
+  const titles = new Map(canvas.nodes.flatMap((n) => (n.type === "file" && n.title ? [[n.id, n.title] as const] : [])));
+  const label = (name: string) => blockLabel(name, { title: titles.get(name) });
+  const match = (name: string) => !q || label(name).toLowerCase().includes(q.toLowerCase()) || (blocks[name]?.content ?? "").toLowerCase().includes(q.toLowerCase());
 
   const sections = useMemo(() => {
     const groups = canvas.nodes.filter((n) => n.type === "group").sort((a, b) => a.y - b.y || a.x - b.x);
@@ -176,7 +178,7 @@ function Outline() {
           <div className="chip-row">
             {lastTurn.changed.filter((n) => blocks[n]).map((n) => (
               <button key={n} className="chip changed" onClick={() => jumped(() => zoomToBlock(n, { select: true }))}>
-                {displayName(n)}
+                {label(n)}
               </button>
             ))}
           </div>
@@ -200,8 +202,8 @@ function Outline() {
               return (
                 <button key={n} className="outline-row" onClick={() => jumped(() => zoomToBlock(n, { select: true }))}>
                   <Icon size={14} className={`type-${b.type}`} />
-                  <span className="outline-name">{displayName(n)}</span>
-                  {heading && heading.toLowerCase() !== displayName(n).toLowerCase() && <span className="outline-detail">{heading}</span>}
+                  <span className="outline-name">{label(n)}</span>
+                  {heading && heading.toLowerCase() !== label(n).toLowerCase() && <span className="outline-detail">{heading}</span>}
                   {protectedIds.has(n) && <Shield size={12} className="outline-protected" />}
                   {changed.has(n) && <span className="changed-dot" title="Changed in the agent's last turn" />}
                 </button>
