@@ -294,6 +294,15 @@
   border-color: var(--accent);
   color: var(--text);
 }
+.edge-end-handle {
+  fill: var(--panel);
+  stroke: var(--accent);
+  stroke-width: 2;
+  pointer-events: none;
+}
+.react-flow__edgeupdater {
+  cursor: grab;
+}
 .edge-dot {
   display: block;
   width: 10px;
