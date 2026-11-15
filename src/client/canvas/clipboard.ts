@@ -258,3 +258,42 @@ function recordPaste(names: string[], groupIds: string[], label: string): void {
     },
   });
 }
+
+/**
+ * A text block's content for another app. Raw view: its source, Markdown
+ * symbols and all. A rendered Markdown block: formatted text (HTML, with plain
+ * text beside it for apps that take no formatting). Diagrams and HTML blocks
+ * copy their source either way.
+ */
+export async function copyBlockContent(name: string, mode: "raw" | "rendered"): Promise<void> {
+  const b = useBoard.getState().blocks[name];
+  if (!b || !isTextType(b.type) || b.content === undefined) return;
+  const label = displayName(name);
+  try {
+    if (mode === "rendered" && b.type === "markdown" && typeof ClipboardItem !== "undefined") {
+      const { html, plain } = await renderForClipboard(b.content);
+      await navigator.clipboard.write([
+        new ClipboardItem({ "text/html": new Blob([html], { type: "text/html" }), "text/plain": new Blob([plain], { type: "text/plain" }) }),
+      ]);
+      toast.success(`Copied ${label} as formatted text`);
+    } else {
+      await navigator.clipboard.writeText(b.content);
+      toast.success(`Copied ${label}${b.type === "markdown" ? " as Markdown" : ""}`);
+    }
+  } catch {
+    toast.error("Copying needs clipboard access in this browser.");
+  }
+}
+
+/** The block's Markdown as the board renders it: HTML, and its text as laid out (line breaks kept). */
+async function renderForClipboard(source: string): Promise<{ html: string; plain: string }> {
+  const [{ renderToStaticMarkup }, { createElement }, { MarkdownView }] = await Promise.all([import("react-dom/server"), import("react"), import("../blocks/renderers")]);
+  const html = renderToStaticMarkup(createElement(MarkdownView, { source }));
+  const box = document.createElement("div");
+  box.style.cssText = "position:fixed;left:-10000px;top:0;width:600px;white-space:normal";
+  box.innerHTML = html;
+  document.body.appendChild(box);
+  const plain = box.innerText;
+  box.remove();
+  return { html, plain };
+}

@@ -27,6 +27,7 @@ import {
   ArrowLeftRight,
   BoxSelect,
   Code2,
+  ClipboardCopy,
   Copy,
   Crosshair,
   Download,
@@ -80,7 +81,7 @@ import { ZoomBar } from "./ZoomBar";
 import { isMac, modKey } from "../lib/keys";
 import { redo, undo } from "./undo";
 import { isPhone, PHONE, TOUCH, useMedia } from "../lib/device";
-import { clipFromPaste, copySelection, duplicateSelection, pasteClip, pasteText } from "./clipboard";
+import { clipFromPaste, copyBlockContent, copySelection, duplicateSelection, pasteClip, pasteText } from "./clipboard";
 
 const nodeTypes = { block: BlockNode, group: GroupFrame };
 const edgeTypes = { block: BlockEdge };
@@ -472,6 +473,15 @@ export function BoardCanvas() {
         { kind: "sep" },
         { label: "Ask the agent about it", icon: <Bot size={15} />, hint: "A", onSelect: () => askAbout([menu.id]) },
         { label: "Zoom to block", icon: <Crosshair size={15} />, hint: "Z", onSelect: () => zoomToBlock(menu.id) },
+        ...(b && b.type !== "image"
+          ? [
+              {
+                label: modeOf(menu.id, b.type) === "raw" || b.type !== "markdown" ? "Copy content" : "Copy content (formatted)",
+                icon: <ClipboardCopy size={15} />,
+                onSelect: () => void copyBlockContent(menu.id, modeOf(menu.id, b.type)),
+              },
+            ]
+          : []),
         {
           label: "Copy name",
           icon: <Copy size={15} />,

@@ -14,6 +14,8 @@ How versions and releases work: "Versioning and releases" in
 - **Fix:** a slash command's report (`/context`) shows once; Claude Code's
   adapter sent it twice. Its later sections (tools, skills…) are folded.
 - Each chat reply has a copy button that copies its Markdown.
+- **Copy content** in a block's menu: a Markdown block copies as formatted
+  text from the rendered view and as Markdown from the raw view.
 
 ## 0.6.4
 
