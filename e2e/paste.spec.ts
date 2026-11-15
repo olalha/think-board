@@ -67,8 +67,9 @@ test("Copy content: Markdown from the raw view, formatted text from the rendered
 
   await block.click();
   await page.keyboard.press("Enter"); // raw view
-  await page.keyboard.press("Escape");
-  await block.click({ button: "right" });
+  await expect(block.locator(".cm-content")).toBeFocused(); // the editor loads lazily
+  // The block's own menu (inside the editor, the browser's menu wins).
+  await block.locator(".block-header").click({ button: "right", position: { x: 8, y: 8 } });
   await page.getByRole("menuitem", { name: "Copy content", exact: true }).click();
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain("Some **bold** words");
 });

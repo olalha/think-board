@@ -58,6 +58,7 @@ test("renaming a block to a title with symbols, with the file name hint, and und
   // Undo: the title goes back, then the file name and no title; redo brings both back.
   await page.keyboard.press("ControlOrMeta+z");
   await expect(block(page, "beta-co").locator(".block-name")).toHaveText("Beta & co ✨");
+  await expect.poll(() => titleOf(dir, "beta-co")).toBe("Beta & co ✨"); // that step has landed
   await page.keyboard.press("ControlOrMeta+z");
   await expect(block(page, "beta").locator(".block-name")).toHaveText("Beta");
   await expect.poll(() => read(dir, "beta.md")).toBe("# Beta\n");
@@ -92,6 +93,7 @@ test("typing @ or [[ in the raw editor picks a block and writes [[name]]", async
   await page.keyboard.type("See @be");
   await expect(list).toBeVisible();
   await expect(list.locator("li").first()).toContainText("Beta");
+  await page.waitForTimeout(150); // CodeMirror ignores keys for 75 ms after the list opens
   await page.keyboard.press("Enter");
   await expect(list).toBeHidden();
   await expect(editor).toContainText("See [[beta]]");
@@ -106,6 +108,7 @@ test("typing @ or [[ in the raw editor picks a block and writes [[name]]", async
 
   await page.keyboard.type("and [[alp");
   await expect(list.locator("li").first()).toContainText("Alpha");
+  await page.waitForTimeout(150);
   await page.keyboard.press("Enter");
   await expect(editor).toContainText("See [[beta]] and [[alpha]]");
   await expect.poll(() => read(dir, "gamma.md")).toBe("# Gamma\nSee [[beta]] and [[alpha]]");
