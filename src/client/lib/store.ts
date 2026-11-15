@@ -190,7 +190,7 @@ export function clearMode(name: string): void {
 }
 
 export function modeOf(name: string, type: BlockInfo["type"] | undefined): ViewMode {
-  if (type === "image") return "rendered"; // drawing is its edit mode (ui-state `drawing`)
+  if (type === "image" || type === "pdf") return "rendered"; // an image's edit mode is drawing (ui-state `drawing`); a PDF has none
   return useBoard.getState().modes[name] ?? "rendered";
 }
 

@@ -23,9 +23,13 @@ import {
   initialContent,
   isTextType,
   isValidName,
+  looksLikePdf,
+  MAX_PDF_BYTES,
   parseBlockFile,
+  PDF_MIME,
   TYPE_EXTENSION,
   type BlockType,
+  type TextType,
 } from "../shared/blocks.js";
 import { EDGE_STYLES, emptyCanvas, serializeCanvas, SIDES, type Canvas, type CanvasEdge, type CanvasNode, type CanvasView, type FileNode, type GroupNode, type Side } from "../shared/canvas.js";
 import type {
@@ -94,6 +98,7 @@ import { SLUG_RE, UserError, type ProjectMeta, type ProjectState, type ProjectSt
 import type { Templates } from "./templates.js";
 import { NewerFormatError, readThinkFile, sameThinkFile, serializeThinkFile, THINK_FILE } from "./think-file.js";
 import { COMMENTS_FILE, MAX_COMMENT, parseComments, serializeComments } from "./comments.js";
+import { PdfTextStore } from "./pdf-text.js";
 import { BASE_FILE_RE, DRAWINGS_DIR, drawingSchema, readDrawing, renderDrawing, sidecarDir } from "./drawings.js";
 import { DRAWING_FORMAT, type Drawing } from "../shared/drawing.js";
 import { errorMessage, hashOf, newId, SerialQueue, type Logger } from "./util.js";
@@ -143,6 +148,8 @@ export class ProjectRuntime {
   readonly dir: string;
   private readonly thinkDir: string;
   private readonly queue = new SerialQueue();
+  /** The text of PDF blocks, kept in .think/text/ for agents that can't read a PDF. */
+  private readonly pdfText: PdfTextStore;
   private readonly clients = new Map<string, ClientConn>();
 
   private meta!: ProjectMeta;
@@ -242,6 +249,7 @@ export class ProjectRuntime {
     this.dir = deps.store.dir(deps.slug);
     this.thinkDir = deps.store.thinkDir(deps.slug);
     this.room = new GuestRoom(this.thinkDir);
+    this.pdfText = new PdfTextStore(this.dir, this.thinkDir, deps.log);
   }
 
   private get log(): Logger {
@@ -434,6 +442,7 @@ export class ProjectRuntime {
     for (const t of this.mermaidTimers.values()) clearTimeout(t);
     await this.watcher?.close();
     this.watcher = null;
+    await this.pdfText.idle();
     await this.agentRequests?.stop();
     this.agentRequests = null;
     this.finalizeStreaming();
@@ -558,7 +567,7 @@ export class ProjectRuntime {
     };
     if (isTextType(parsed.type)) {
       entry.content = buf.length > MAX_TEXT_BYTES ? `(This file is ${(buf.length / 1048576).toFixed(1)} MB — too large to show on the canvas.)` : buf.toString("utf8");
-    } else {
+    } else if (parsed.type === "image") {
       try {
         const dim = imageSize(buf);
         if (dim.width && dim.height) entry.natural = { width: dim.width, height: dim.height };
@@ -602,6 +611,7 @@ export class ProjectRuntime {
       if (this.blocks.get(name)?.file !== next.get(name)?.file) changed.add(name);
     }
     this.blocks = next;
+    this.pdfText.sync(new Map([...next.values()].filter((f) => f.type === "pdf").map((f) => [f.file, f.hash])));
     if (conflicts.join("\n") !== this.conflicts.join("\n")) {
       this.conflicts = conflicts;
       this.broadcast({ type: "conflicts.changed", conflicts });
@@ -1237,7 +1247,7 @@ export class ProjectRuntime {
     this.assertUnlocked();
     const b = this.blocks.get(name);
     if (!b) throw new UserError(`There is no block called "${name}".`);
-    if (!isTextType(b.type)) throw new UserError(`"${name}" is an image; it cannot be edited as text.`);
+    if (!isTextType(b.type)) throw new UserError(`"${name}" is ${b.type === "pdf" ? "a PDF" : "an image"}; it cannot be edited as text.`);
     if (typeof content !== "string") throw new UserError("Invalid content.");
     if (content === b.content) return { hash: b.hash };
     b.content = content;
@@ -1571,30 +1581,33 @@ export class ProjectRuntime {
       const name = freeName(isValidName(it.from) ? it.from : "block", taken);
       let entry: FileEntry;
       let data: string | Buffer;
-      if (it.type === "image") {
+      if (!isTextType(it.type)) {
+        // A binary block (image, PDF): its file is copied from the canvas it came from.
         const src = it.image;
         const parsed = src && typeof src.file === "string" ? parseBlockFile(src.file) : null;
-        if (!src || !SLUG_RE.test(String(src.canvas)) || parsed?.type !== "image") continue;
+        if (!src || !SLUG_RE.test(String(src.canvas)) || parsed?.type !== it.type) continue;
         try {
           data = await fs.readFile(path.join(this.deps.store.dir(src.canvas), src.file));
         } catch {
           continue; // the original is gone
         }
         let natural: { width: number; height: number } | undefined;
-        try {
-          const dim = imageSize(data);
-          if (dim.width && dim.height) natural = { width: dim.width, height: dim.height };
-        } catch {
-          continue;
+        if (parsed.type === "image") {
+          try {
+            const dim = imageSize(data);
+            if (dim.width && dim.height) natural = { width: dim.width, height: dim.height };
+          } catch {
+            continue;
+          }
         }
-        entry = { name, file: `${name}.${parsed.ext}`, ext: parsed.ext, type: "image", hash: hashOf(data), size: data.length, natural, firstSeen: Date.now(), mtimeMs: Date.now() };
-        // Its drawing comes along, so the copy can be drawn on further.
+        entry = { name, file: `${name}.${parsed.ext}`, ext: parsed.ext, type: parsed.type, hash: hashOf(data), size: data.length, natural, firstSeen: Date.now(), mtimeMs: Date.now() };
+        // An image's drawing comes along, so the copy can be drawn on further.
         const srcSidecar = sidecarDir(this.deps.store.dir(src.canvas), parsed.name);
-        if (await exists(srcSidecar)) await fs.cp(srcSidecar, sidecarDir(this.dir, name), { recursive: true }).catch(() => {});
+        if (parsed.type === "image" && (await exists(srcSidecar))) await fs.cp(srcSidecar, sidecarDir(this.dir, name), { recursive: true }).catch(() => {});
       } else {
         const content = typeof it.content === "string" ? it.content : "";
         if (Buffer.byteLength(content) > MAX_TEXT_BYTES) throw new UserError(`“${displayName(it.from)}” is too large to paste.`);
-        const ext = TYPE_EXTENSION[it.type as Exclude<BlockType, "image">];
+        const ext = TYPE_EXTENSION[it.type as TextType];
         data = content;
         entry = { name, file: `${name}.${ext}`, ext, type: it.type, hash: hashOf(content), size: Buffer.byteLength(content), content, firstSeen: Date.now(), mtimeMs: Date.now() };
       }
@@ -1689,6 +1702,28 @@ export class ProjectRuntime {
       await this.addBlock(entry, data, opts.x ?? 0, opts.y ?? 0);
       return { name };
     });
+  }
+
+  /** PDF upload: a new PDF block. */
+  async putPdf(data: Buffer, opts: { x?: number; y?: number }): Promise<{ name: string }> {
+    if (data.length > MAX_PDF_BYTES) throw new UserError(`That PDF is too large (${(data.length / 1048576).toFixed(1)} MB); the limit is ${MAX_PDF_BYTES / 1048576} MB.`);
+    if (!looksLikePdf(data)) throw new UserError("That file is not a PDF.");
+    return this.queue.run(async () => {
+      this.assertUnlocked();
+      const name = allocateName(this.deps.config.namePool(), this.takenNames());
+      const entry: FileEntry = { name, file: `${name}.pdf`, ext: "pdf", type: "pdf", hash: hashOf(data), size: data.length, firstSeen: Date.now(), mtimeMs: Date.now() };
+      await this.addBlock(entry, data, opts.x ?? 0, opts.y ?? 0);
+      return { name };
+    });
+  }
+
+  /** An upload (POST …/images): a PDF becomes a PDF block, anything else must be an image. */
+  async putUpload(data: Buffer, mime: string, opts: { x?: number; y?: number; replace?: string }): Promise<{ name: string }> {
+    if (mime === PDF_MIME || (!mime.startsWith("image/") && looksLikePdf(data))) {
+      if (opts.replace) throw new UserError("A PDF cannot replace an image.");
+      return this.putPdf(data, opts);
+    }
+    return this.putImage(data, mime, opts);
   }
 
   private async addBlock(entry: FileEntry, data: string | Buffer, x: number, y: number): Promise<void> {
@@ -2621,6 +2656,9 @@ export class ProjectRuntime {
           });
       await this.addEntry({ kind: "user", id: newId("u-"), ts: Date.now(), text, injected: before || after ? { before, after } : undefined });
 
+      // A PDF added just before: its text (.think/text/) is ready before the agent looks.
+      await this.pdfText.idle();
+
       // 5. Run the turn.
       let stop: acp.StopReason = await this.sendPrompt([before, text, after]);
       let attempt = 0;
@@ -2941,7 +2979,7 @@ export class ProjectRuntime {
         issues.push({ file: `${top}/`, message: `folder "${top}/" is not part of the canvas; keep scratch work in work/ (move it there, or delete it).` });
         continue;
       }
-      const m = /^(.+)\.(md|mmd|html|png|jpe?g|webp|gif)$/i.exec(f);
+      const m = /^(.+)\.(md|mmd|html|png|jpe?g|webp|gif|pdf)$/i.exec(f);
       issues.push({
         file: f,
         message: m

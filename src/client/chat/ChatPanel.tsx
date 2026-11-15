@@ -547,7 +547,7 @@ function Composer() {
       .filter((n) => n.includes(q) || displayName(n).toLowerCase().includes(q))
       .sort((a, b) => Number(!a.startsWith(q)) - Number(!b.startsWith(q)) || a.localeCompare(b))
       .slice(0, 8)
-      .map((n) => ({ name: n, description: displayName(n) + (blocks[n].type === "image" ? " · image" : "") }));
+      .map((n) => ({ name: n, description: displayName(n) + (blocks[n].type === "image" ? " · image" : blocks[n].type === "pdf" ? " · PDF" : "") }));
   }, [mention?.[2], mention === null, blocks, cmdDismissed]);
   const pickMention = (name: string) => {
     const before = text.slice(0, caret).replace(/@([a-z0-9-]*)$/i, `@${name} `);

@@ -1,6 +1,6 @@
 // Canvas actions shared by the toolbar, context menus and keyboard shortcuts.
 import type { ReactFlowInstance } from "@xyflow/react";
-import { BLOCK_SIZES, displayName, type BlockType } from "../../shared/blocks";
+import { BLOCK_SIZES, displayName, MAX_PDF_BYTES, PDF_MIME, type TextType } from "../../shared/blocks";
 import type { CanvasView, ViewList } from "../../shared/canvas";
 import type { Drawing } from "../../shared/drawing";
 import { fileUrl, preloadImage, uploadImage } from "../lib/api";
@@ -58,7 +58,7 @@ export function recentlyCreated(withinMs: number): Promise<string | null> | null
   return lastCreated && Date.now() - lastCreated.at < withinMs ? lastCreated.name : null;
 }
 
-export async function createBlock(type: Exclude<BlockType, "image">, at?: { x: number; y: number }): Promise<void> {
+export async function createBlock(type: TextType, at?: { x: number; y: number }): Promise<void> {
   if (lockedGuard()) return;
   const p = at ?? placementPoint();
   const size = BLOCK_SIZES[type];
@@ -73,13 +73,31 @@ export async function createBlock(type: Exclude<BlockType, "image">, at?: { x: n
   select([r.name]);
 }
 
+/** A PDF file, by its type or (some systems give dropped files no type) its name. */
+export function isPdfFile(file: File | Blob): boolean {
+  return file.type === PDF_MIME || (!file.type && file instanceof File && /\.pdf$/i.test(file.name));
+}
+
+/** A file that can become a block: an image or a PDF. */
+export function isBlockFile(file: File | Blob): boolean {
+  return file.type.startsWith("image/") || isPdfFile(file);
+}
+
+/** Upload an image or a PDF as a new block. */
 export async function createImage(file: File | Blob, at?: { x: number; y: number }): Promise<void> {
   if (lockedGuard()) return;
   const slug = currentSlug();
   if (!slug) return;
+  const pdf = isPdfFile(file);
+  if (pdf && file.size > MAX_PDF_BYTES) {
+    return void toast.error(`That PDF is too large (${(file.size / 1048576).toFixed(1)} MB); the limit is ${MAX_PDF_BYTES / 1048576} MB.`);
+  }
+  // A typeless .pdf is sent as one, so the server knows what it is.
+  if (pdf && !file.type) file = new Blob([file], { type: PDF_MIME });
   const p = at ?? placementPoint();
   const key = `u${Math.random().toString(36).slice(2, 8)}`;
-  const box = { x: p.x - 160, y: p.y - 120, width: 320, height: 240 };
+  const s = BLOCK_SIZES[pdf ? "pdf" : "image"];
+  const box = { x: p.x - s.width / 2, y: p.y - s.height / 2, width: s.width, height: s.height };
   const setUpload = (progress: number | null) =>
     useCanvasUi.setState((s) => {
       const uploads = { ...s.uploads };
@@ -93,7 +111,7 @@ export async function createImage(file: File | Blob, at?: { x: number; y: number
     // The upload answers over HTTP; the block itself arrives over the socket.
     await waitForBlock(r.name);
     recordCreate(r.name);
-    toast.success(`Added image ${displayName(r.name)}`);
+    toast.success(`Added ${pdf ? "PDF" : "image"} ${displayName(r.name)}`);
     select([r.name]);
   } catch (err) {
     toast.error((err as Error).message);
@@ -186,10 +204,10 @@ async function uploadReplacement(name: string, file: File | Blob): Promise<void>
 }
 
 /** Open the OS file picker for an image. */
-export function pickImage(onFile: (f: File) => void): void {
+export function pickImage(onFile: (f: File) => void, opts: { pdf?: boolean } = {}): void {
   const input = document.createElement("input");
   input.type = "file";
-  input.accept = "image/png,image/jpeg,image/webp,image/gif";
+  input.accept = "image/png,image/jpeg,image/webp,image/gif" + (opts.pdf ? `,${PDF_MIME},.pdf` : "");
   input.onchange = () => {
     const f = input.files?.[0];
     if (f) onFile(f);

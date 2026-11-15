@@ -3,6 +3,7 @@
 // preview and restore). Toggle with B.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  BookOpenText,
   ArrowLeftRight,
   Bot,
   ChevronDown,
@@ -49,7 +50,7 @@ import { startPresenting } from "./Present";
 import { CommentBadge, CommentsPanel as Comments } from "./Comments";
 import { Dialog } from "./Dialogs";
 
-const TYPE_ICON: Record<BlockType, typeof FileText> = { markdown: FileText, mermaid: Workflow, html: Globe, image: ImageIcon };
+const TYPE_ICON: Record<BlockType, typeof FileText> = { markdown: FileText, mermaid: Workflow, html: Globe, image: ImageIcon, pdf: BookOpenText };
 const TABS: { id: Settings["sidePanel"]; label: string; icon: typeof FileText }[] = [
   { id: "outline", label: "Blocks", icon: ListTree },
   { id: "views", label: "Views", icon: Eye },

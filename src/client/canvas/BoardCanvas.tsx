@@ -49,7 +49,7 @@ import {
 } from "lucide-react";
 import type { CanvasNode, EdgeStyle, Side } from "../../shared/canvas";
 import { edgeEnds, groupMembers } from "../../shared/canvas";
-import { displayName } from "../../shared/blocks";
+import { displayName, isTextType } from "../../shared/blocks";
 import { PAGES } from "../../shared/drawing";
 import { act, layout } from "../lib/project";
 import { modeOf, previewAll, setChatOpen, setMode, useBoard } from "../lib/store";
@@ -63,6 +63,7 @@ import { cameraBack, cameraForward, resetCamera } from "./camera";
 import {
   createBlock,
   createImage,
+  isBlockFile,
   createSketch,
   deleteBlocks,
   deleteEdges,
@@ -441,7 +442,7 @@ export function BoardCanvas() {
     }
     if (menu.kind === "image") {
       return [
-        { label: "Upload an image…", icon: <ImageIcon size={15} />, hint: "I", disabled: locked, onSelect: () => pickImage((f) => void createImage(f)) },
+        { label: "Upload an image or PDF…", icon: <ImageIcon size={15} />, hint: "I", disabled: locked, onSelect: () => pickImage((f) => void createImage(f), { pdf: true }) },
         { kind: "swatches", label: "Blank page", icon: <PenLine size={15} />, hint: "S", disabled: locked, colors: PAGES, onPick: (c) => void createSketch(undefined, c) },
       ];
     }
@@ -452,7 +453,7 @@ export function BoardCanvas() {
         { label: "Markdown", icon: <FileText size={15} />, hint: "M", disabled: locked, onSelect: () => void createBlock("markdown", at) },
         { label: "Mermaid diagram", icon: <Workflow size={15} />, hint: "D", disabled: locked, onSelect: () => void createBlock("mermaid", at) },
         { label: "HTML", icon: <Globe size={15} />, hint: "H", disabled: locked, onSelect: () => void createBlock("html", at) },
-        { label: "Image…", icon: <ImageIcon size={15} />, hint: "I", disabled: locked, onSelect: () => pickImage((f) => void createImage(f, at)) },
+        { label: "Image or PDF…", icon: <ImageIcon size={15} />, hint: "I", disabled: locked, onSelect: () => pickImage((f) => void createImage(f, at), { pdf: true }) },
         { kind: "swatches", label: "Blank page", icon: <PenLine size={15} />, hint: "S", disabled: locked, colors: PAGES, onPick: (c) => void createSketch(at, c) },
         { label: "Group (frame)", icon: <Frame size={15} />, hint: "G", disabled: locked, onSelect: () => groupSelection([], at) },
         { kind: "sep" },
@@ -502,7 +503,7 @@ export function BoardCanvas() {
       const lastValid = useBoard.getState().mermaidLastValid[menu.id];
       const isProtected = cnode?.type === "file" && !!cnode.protected;
       const items: MenuEntry[] = [{ kind: "heading", label: displayName(menu.id) }];
-      if (b && b.type !== "image") {
+      if (b && isTextType(b.type)) {
         const raw = modeOf(menu.id, b.type) === "raw";
         items.push({
           label: raw ? "Show rendered" : "Edit raw",
@@ -531,7 +532,7 @@ export function BoardCanvas() {
         { kind: "sep" },
         { label: "Ask the agent about it", icon: <Bot size={15} />, hint: "A", onSelect: () => askAbout([menu.id]) },
         { label: "Zoom to block", icon: <Crosshair size={15} />, hint: "Z", onSelect: () => zoomToBlock(menu.id) },
-        ...(b && b.type !== "image"
+        ...(b && isTextType(b.type)
           ? [
               {
                 label: modeOf(menu.id, b.type) === "raw" || b.type !== "markdown" ? "Copy content" : "Copy content (formatted)",
@@ -612,6 +613,7 @@ export function BoardCanvas() {
         if (!b) return;
         e.preventDefault();
         if (b.type === "image") return startDrawing(s[0]);
+        if (!isTextType(b.type)) return; // a PDF has no edit mode
         const raw = modeOf(s[0], b.type) === "raw";
         setMode(s[0], raw ? "rendered" : "raw");
         if (!raw) useBoard.setState({ focusRequest: s[0] });
@@ -663,7 +665,7 @@ export function BoardCanvas() {
         case "i":
         case "I":
           e.preventDefault();
-          if (!useBoard.getState().lock.locked) pickImage((f) => void createImage(f));
+          if (!useBoard.getState().lock.locked) pickImage((f) => void createImage(f), { pdf: true });
           break;
         case "f":
         case "F":
@@ -892,7 +894,7 @@ export function BoardCanvas() {
         void pasteClip(clip);
         return;
       }
-      const file = [...(e.clipboardData?.files ?? [])].find((f) => f.type.startsWith("image/"));
+      const file = [...(e.clipboardData?.files ?? [])].find(isBlockFile);
       if (file) {
         e.preventDefault();
         void createImage(file);
@@ -923,7 +925,7 @@ export function BoardCanvas() {
   };
   const onDrop = (e: React.DragEvent) => {
     setDropping(false);
-    const files = [...e.dataTransfer.files].filter((f) => f.type.startsWith("image/"));
+    const files = [...e.dataTransfer.files].filter(isBlockFile);
     if (!files.length) return;
     e.preventDefault();
     const at = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });

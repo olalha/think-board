@@ -189,7 +189,7 @@ export async function runCommand(host: CommandHost, caller: Caller, req: Command
           throw new OpError(
             parsed || !/\./.test(ref)
               ? `There is no block file “${ref}” in the canvas folder yet. Write the file first (at the top level of the folder), then run think add.`
-              : `“${ref}” is not a block file: names are lowercase letters, digits and hyphens with .md, .mmd, .html or an image extension (like tea-notes.md).`,
+              : `“${ref}” is not a block file: names are lowercase letters, digits and hyphens with .md, .mmd, .html, .pdf or an image extension (like tea-notes.md).`,
           );
         }
       } else node = findNode(view, blockRef(a[0]));
