@@ -205,7 +205,8 @@ export function FilesPanel() {
           <input value={q} placeholder={`Filter ${files.length} files`} onChange={(e) => setQ(e.target.value)} />
         </div>
       )}
-      {Object.entries(uploads).map(([name, p]) => (
+      {/* A finished upload's row gives way to the file's own row as soon as the list has it. */}
+      {Object.entries(uploads).filter(([name, p]) => p < 1 || !files.some((f) => f.path === name)).map(([name, p]) => (
         <div key={`up-${name}`} className="file-row uploading">
           <Upload size={14} />
           <span className="file-main">

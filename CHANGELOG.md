@@ -9,6 +9,8 @@ How versions and releases work: "Versioning and releases" in
 
 - **Security:** @hono/node-server 2.1.8 and hono 4.13.18 (used by the agent adapters' MCP
   support); `npm audit --omit=dev` is clean again.
+- **Fix:** a file just uploaded in the Files tab no longer shows twice for a
+  moment.
 
 ## 0.7.1
 
