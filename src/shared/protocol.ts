@@ -297,7 +297,7 @@ export type LayoutOp =
   | { op: "node.move"; id: string; x: number; y: number }
   | { op: "node.resize"; id: string; x: number; y: number; width: number; height: number }
   | { op: "edge.add"; edge: CanvasEdge }
-  | { op: "edge.update"; id: string; patch: Partial<Omit<CanvasEdge, "id" | "fromNode" | "toNode">> }
+  | { op: "edge.update"; id: string; patch: Partial<Omit<CanvasEdge, "id">> }
   | { op: "edge.delete"; id: string }
   | { op: "node.protect"; id: string; protected: boolean }
   | { op: "group.add"; group: GroupNode }

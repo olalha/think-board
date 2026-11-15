@@ -1382,6 +1382,14 @@ export class ProjectRuntime {
           const e = canvas.edges.find((x) => x.id === op.id);
           if (!e) continue;
           const p = op.patch ?? {};
+          // Reattaching an end: the block must exist, and a connection never joins a block to itself.
+          const from = typeof p.fromNode === "string" ? p.fromNode : e.fromNode;
+          const to = typeof p.toNode === "string" ? p.toNode : e.toNode;
+          if (from !== e.fromNode || to !== e.toNode) {
+            if (!nodeById.has(from) || !nodeById.has(to) || from === to) throw new UserError("That connection is not valid.");
+            e.fromNode = from;
+            e.toNode = to;
+          }
           // null (e.g. from undo) removes the side: the connection picks the nearest.
           for (const k of ["fromSide", "toSide"] as const) {
             if (!(k in p)) continue;

@@ -17,6 +17,7 @@ import {
   useReactFlow,
   ViewportPortal,
   type Connection,
+  type FinalConnectionState,
   type Edge,
   type Node,
   type NodeChange,
@@ -239,9 +240,11 @@ export function BoardCanvas() {
         markerStart: fromEnd === "arrow" ? marker : undefined,
         markerEnd: toEnd === "arrow" ? marker : undefined,
         selected,
+        // Only the selected edge can be dragged by its ends, so on touch screens the rest pans.
+        reconnectable: selected && !locked,
       } satisfies Edge;
     });
-  }, [canvas.edges, nodeById, selectedEdges]);
+  }, [canvas.edges, nodeById, selectedEdges, locked]);
 
   // ---- local changes → server ops ----------------------------------------------
   const moveTimer = useRef<number | null>(null);
@@ -360,6 +363,60 @@ export function BoardCanvas() {
       },
     ]);
   }, []);
+
+  // Reattach one end of an arrow to a block side. Drops that change nothing, or
+  // would join a block to itself, are ignored.
+  const reattach = useCallback(
+    (edgeId: string, end: "source" | "target", nodeId: string, side: Side) => {
+      const e = useBoard.getState().canvas.edges.find((x) => x.id === edgeId);
+      if (!e) return;
+      const other = end === "source" ? e.toNode : e.fromNode;
+      if (nodeId === other) return;
+      const nodes = rf.getNodes();
+      const [autoFrom, autoTo] = autoSides(nodes.find((n) => n.id === e.fromNode), nodes.find((n) => n.id === e.toNode));
+      const curNode = end === "source" ? e.fromNode : e.toNode;
+      const curSide = end === "source" ? (e.fromSide ?? autoFrom) : (e.toSide ?? autoTo);
+      if (nodeId === curNode && side === curSide) return;
+      const patch = end === "source" ? { fromNode: nodeId, fromSide: side } : { toNode: nodeId, toSide: side };
+      void layout([{ op: "edge.update", id: edgeId, patch }], { undoable: true, label: "Move arrow end" });
+    },
+    [rf],
+  );
+  const reconnected = useRef(false);
+  const onReconnectStart = useCallback(() => {
+    reconnected.current = false;
+  }, []);
+  const onReconnect = useCallback(
+    (old: Edge, c: Connection) => {
+      reconnected.current = true;
+      if (useBoard.getState().lock.locked) return;
+      const end = c.source !== old.source || c.sourceHandle !== old.sourceHandle ? "source" : "target";
+      const nodeId = end === "source" ? c.source : c.target;
+      const side = (end === "source" ? c.sourceHandle : c.targetHandle) as Side | null;
+      if (nodeId && side) reattach(old.id, end, nodeId, side);
+    },
+    [reattach],
+  );
+  // Dropped on a block's body rather than on a handle: attach to its nearest side.
+  // Dropped on empty canvas: nothing changes.
+  const onReconnectEnd = useCallback(
+    (ev: MouseEvent | TouchEvent, edge: Edge, handleType: "source" | "target", state: FinalConnectionState) => {
+      if (reconnected.current || state.isValid || !state.toNode || useBoard.getState().lock.locked) return;
+      const pt = "changedTouches" in ev ? ev.changedTouches[0] : ev;
+      if (!pt) return;
+      const internal = rf.getInternalNode(state.toNode.id);
+      if (!internal) return;
+      const p = rf.screenToFlowPosition({ x: pt.clientX, y: pt.clientY });
+      const w = internal.measured.width ?? 1;
+      const h = internal.measured.height ?? 1;
+      const x = (p.x - internal.internals.positionAbsolute.x) / w;
+      const y = (p.y - internal.internals.positionAbsolute.y) / h;
+      const dist: [Side, number][] = [["left", x], ["right", 1 - x], ["top", y], ["bottom", 1 - y]];
+      dist.sort((a, b) => a[1] - b[1]);
+      reattach(edge.id, handleType, state.toNode.id, dist[0][0]);
+    },
+    [rf, reattach],
+  );
 
   // ---- pointer tracking (for "new block here" and paste) ----------------------
   const onPaneMouseMove = useCallback(
@@ -899,6 +956,10 @@ export function BoardCanvas() {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        onReconnectStart={onReconnectStart}
+        onReconnect={onReconnect}
+        onReconnectEnd={onReconnectEnd}
+        reconnectRadius={14}
         onNodeDragStart={onNodeDragStart}
         onNodeDrag={onNodeDrag}
         onNodeDragStop={onNodeDragStop}

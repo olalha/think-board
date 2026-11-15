@@ -20,6 +20,7 @@ How versions and releases work: "Versioning and releases" in
   where an arrow attaches to each block, on a new or an existing link.
 - Pressing Z again on a very tall or wide block zooms in on its start so the text is
   readable; a third press fits it whole again.
+- Drag the ends of a selected arrow to attach it to another side or another block.
 
 ## 0.6.4
 

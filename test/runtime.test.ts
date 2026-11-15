@@ -669,3 +669,21 @@ describe("switching the agent", () => {
     expect(h.runtime.providerId).toBe("fake");
   });
 });
+
+describe("edge.update reattaches an arrow's ends", () => {
+  it("moves an end to another block or side, and rejects unknown blocks and self-loops", async () => {
+    h = await makeHarness();
+    for (const x of [0, 600, 1200]) await send(h, { type: "block.create", blockType: "markdown", x, y: 0 });
+    await send(h, { type: "user.layout", ops: [{ op: "edge.add", edge: { id: "e1", fromNode: "harry", toNode: "bob" } }] });
+    const read = async () => JSON.parse(await fs.readFile(path.join(h!.dir, "canvas.json"), "utf8"));
+    const names = (await read()).nodes.map((n: { id: string }) => n.id) as string[];
+    const third = names.find((n) => n !== "harry" && n !== "bob")!;
+    await send(h, { type: "user.layout", ops: [{ op: "edge.update", id: "e1", patch: { toNode: third, toSide: "top" } }] });
+    expect((await read()).edges[0]).toMatchObject({ fromNode: "harry", toNode: third, toSide: "top" });
+    await send(h, { type: "user.layout", ops: [{ op: "edge.update", id: "e1", patch: { fromSide: "bottom" } }] });
+    expect((await read()).edges[0]).toMatchObject({ fromNode: "harry", fromSide: "bottom" });
+    await expect(send(h, { type: "user.layout", ops: [{ op: "edge.update", id: "e1", patch: { toNode: "nope" } }] })).rejects.toThrow(/not valid/);
+    await expect(send(h, { type: "user.layout", ops: [{ op: "edge.update", id: "e1", patch: { toNode: "harry" } }] })).rejects.toThrow(/not valid/);
+    expect((await read()).edges[0]).toMatchObject({ fromNode: "harry", toNode: third });
+  });
+});
