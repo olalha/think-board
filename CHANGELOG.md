@@ -5,7 +5,7 @@ before 1.0, a minor version may change things that are not backwards compatible.
 How versions and releases work: "Versioning and releases" in
 [docs/development.md](docs/development.md).
 
-## Unreleased
+## 0.7.1
 
 - **Canvas format 4.** Opening a canvas upgrades it (committed as the app);
   an older think then refuses it rather than dropping PDF blocks and block
