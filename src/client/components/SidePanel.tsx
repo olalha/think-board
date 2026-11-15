@@ -1,5 +1,6 @@
 // The left side panel: Outline (every block, by group), Views (saved
-// viewpoints), README (what the canvas is about) and History (moments you can
+// viewpoints), README (what the canvas is about), Files (the files/ folder:
+// reference material that is not a block) and History (moments you can
 // preview and restore). Toggle with B.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -14,6 +15,7 @@ import {
   FileText,
   Frame,
   Globe,
+  Paperclip,
   GripVertical,
   History as HistoryIcon,
   Image as ImageIcon,
@@ -48,6 +50,7 @@ import { useCanvasUi } from "../canvas/ui-state";
 import { startPresenting } from "./Present";
 import { CommentBadge, CommentsPanel as Comments } from "./Comments";
 import { Dialog } from "./Dialogs";
+import { dragHasFiles, FilesPanel, uploadFiles } from "./FilesPanel";
 
 const TYPE_ICON: Record<BlockType, typeof FileText> = { markdown: FileText, mermaid: Workflow, html: Globe, image: ImageIcon };
 const TABS: { id: Settings["sidePanel"]; label: string; icon: typeof FileText }[] = [
@@ -56,6 +59,7 @@ const TABS: { id: Settings["sidePanel"]; label: string; icon: typeof FileText }[
   { id: "slides", label: "Presentation", icon: Presentation },
   { id: "comments", label: "Comments", icon: MessageSquare },
   { id: "readme", label: "README", icon: FileText },
+  { id: "files", label: "Files", icon: Paperclip },
   { id: "history", label: "History", icon: HistoryIcon },
 ];
 
@@ -101,6 +105,25 @@ export function SidePanel() {
             aria-label={t.label}
             className={tab === t.id ? "on" : ""}
             onClick={() => set("sidePanel", t.id)}
+            // Files dropped on the Files button open the tab and upload there.
+            onDragOver={
+              t.id === "files"
+                ? (e) => {
+                    if (!dragHasFiles(e)) return;
+                    e.preventDefault();
+                    if (tab !== "files") set("sidePanel", "files");
+                  }
+                : undefined
+            }
+            onDrop={
+              t.id === "files"
+                ? (e) => {
+                    if (!dragHasFiles(e)) return;
+                    e.preventDefault();
+                    void uploadFiles([...e.dataTransfer.files]);
+                  }
+                : undefined
+            }
             data-tip={t.label}
             data-tip-pos="right"
           >
@@ -122,6 +145,7 @@ export function SidePanel() {
           {open && tab === "slides" && <Slides />}
           {open && tab === "comments" && <Comments />}
           {open && tab === "readme" && <Readme />}
+          {open && tab === "files" && <FilesPanel />}
           {open && tab === "history" && (phone ? <p className="side-empty">History — seeing the canvas as it was, and restoring — is on a tablet or computer, where the canvas has room to show it.</p> : <History />)}
         </div>
       </div>
@@ -496,6 +520,7 @@ function entryTitle(e: HistoryEntry): string {
     if (s.renamed.length) bits.push(`renamed ${s.renamed.map(([a, b]) => `${displayName(a)} → ${displayName(b)}`).join(", ")}`);
     if (s.removed.length) bits.push(`deleted ${s.removed.map(displayName).join(", ")}`);
     if (s.readme) bits.push("edited the README");
+    if (s.files?.length) bits.push(s.files.length === 1 ? `changed files/${s.files[0]}` : `changed ${s.files.length} files in files/`);
     if (!bits.length && s.layout.length) bits.push("rearranged the canvas");
     const t = bits.join("; ") || "edits";
     return t.charAt(0).toUpperCase() + t.slice(1);

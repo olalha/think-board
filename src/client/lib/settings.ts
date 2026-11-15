@@ -21,7 +21,7 @@ export interface Settings {
   /** While the agent works, glide the camera to the block it is editing. */
   followAgent: boolean;
   /** The left panel: which tab, and whether it is open. */
-  sidePanel: "outline" | "views" | "slides" | "comments" | "readme" | "history";
+  sidePanel: "outline" | "views" | "slides" | "comments" | "readme" | "files" | "history";
   sidePanelOpen: boolean;
   sidePanelWidth: number;
   /** Bumped when a default changes in a way stored preferences should pick up. */

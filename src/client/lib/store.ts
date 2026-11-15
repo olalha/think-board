@@ -17,6 +17,7 @@ import type {
   GuestInfo,
   LockState,
   ProviderInfo,
+  ReferenceFile,
   ServerMessage,
   ValidationReport,
 } from "../../shared/protocol";
@@ -77,6 +78,8 @@ export interface BoardState {
   /** Bumped whenever History gains a point; an open History list reloads. */
   historyVersion: number;
   comments: Comment[];
+  /** The canvas's files/ folder (reference material that is not a block). */
+  refFiles: ReferenceFile[];
   /** comments.json is broken on disk (the comments shown are the last good ones). */
   commentsError: string | null;
   chatOpen: boolean;
@@ -121,6 +124,7 @@ const empty = (): Omit<BoardState, "slug" | "chatOpen" | "modes" | "wraps" | "gu
   saveState: {},
   historyVersion: 0,
   comments: [],
+  refFiles: [],
   commentsError: null,
   chatUnread: false,
   loginOutput: "",
@@ -294,6 +298,7 @@ export function applyServerMessage(msg: ServerMessage, onExternalChange?: (block
         comments: msg.comments ?? [],
         guests: msg.guests ?? [],
         guestThreads: msg.guestThreads ?? {},
+        refFiles: msg.files ?? [],
       });
       for (const b of msg.blocks) onExternalChange?.(b);
       break;
@@ -381,6 +386,9 @@ export function applyServerMessage(msg: ServerMessage, onExternalChange?: (block
     }
     case "conflicts.changed":
       useBoard.setState({ conflicts: msg.conflicts });
+      break;
+    case "files.changed":
+      useBoard.setState({ refFiles: msg.files });
       break;
     case "agent.status":
       useBoard.setState({ agent: msg.status });
