@@ -7,8 +7,8 @@ How versions and releases work: "Versioning and releases" in
 
 ## 0.7.2
 
-- **Security:** @hono/node-server 2.1.8 (used by the agent adapters' MCP
-  support), with the hono fixes it brings.
+- **Security:** @hono/node-server 2.1.8 and hono 4.13.18 (used by the agent adapters' MCP
+  support); `npm audit --omit=dev` is clean again.
 
 ## 0.7.1
 
