@@ -5,6 +5,11 @@ before 1.0, a minor version may change things that are not backwards compatible.
 How versions and releases work: "Versioning and releases" in
 [docs/development.md](docs/development.md).
 
+## Unreleased
+
+- Pressing Z again on a very tall or wide block zooms in on its start so the text is
+  readable; a third press fits it whole again.
+
 ## 0.6.4
 
 - **Security:** Node 24.22.3 in both containers (fixes for HTTP/2 and TLS).
