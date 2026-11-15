@@ -50,6 +50,20 @@ describe("lock", () => {
   });
 });
 
+describe("agent replies", () => {
+  it("drops the adapter's second, whole copy of a command's output", async () => {
+    h = await makeHarness();
+    await send(h, { type: "agent.prompt", text: "echo-report" });
+    await h.waitIdle();
+    const replies = chat(h).filter((e) => e.kind === "agent");
+    expect(replies).toHaveLength(1);
+    const deltas = (h.messages as ServerMessage[]).filter((m) => m.type === "chat.delta").map((m) => (m as { text: string }).text).join("");
+    expect(deltas.match(/## Context Usage/g)).toHaveLength(1);
+    const stored = JSON.parse((await fs.readFile(path.join(h.dir, ".think", "chat.jsonl"), "utf8")).trim().split("\n").find((l) => l.includes("Context Usage"))!);
+    expect(stored.text.match(/## Context Usage/g)).toHaveLength(1);
+  });
+});
+
 describe("prompt assembly", () => {
   it("appends the turn suffix to every prompt and prepends user-changes only after user commits", async () => {
     h = await makeHarness();

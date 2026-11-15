@@ -230,6 +230,16 @@ function ChatBody({ active }: { active: boolean }) {
 
   const lastId = chat[chat.length - 1]?.id;
   const rows = useMemo(() => toRows(shown), [shown]);
+  // Replies to a slash command (/context…): shown as a report.
+  const commandReplies = useMemo(() => {
+    const ids = new Set<string>();
+    let slash = false;
+    for (const e of shown) {
+      if (e.kind === "user") slash = e.text.trim().startsWith("/");
+      else if (e.kind === "agent" && slash) ids.add(e.id);
+    }
+    return ids;
+  }, [shown]);
 
   return (
     <div className="chat-body-wrap">
@@ -242,7 +252,7 @@ function ChatBody({ active }: { active: boolean }) {
         {shown.length === 0 && agent.state === "ready" && <ChatIntro />}
         {rows.map((r, i) =>
           r.kind === "entry" ? (
-            <ChatEntryView key={r.entry.id} entry={r.entry} streaming={running && r.entry.id === lastId} />
+            <ChatEntryView key={r.entry.id} entry={r.entry} streaming={running && r.entry.id === lastId} command={commandReplies.has(r.entry.id)} />
           ) : r.tools.length === 1 && !(running && i === rows.length - 1) ? (
             <ChatEntryView key={r.id} entry={r.tools[0]} />
           ) : (

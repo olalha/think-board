@@ -11,6 +11,9 @@ How versions and releases work: "Versioning and releases" in
   selected, goes into that block instead of also becoming a new one.
 - **Fix:** the font size setting (now "Text size", 12–17) also sizes rendered
   blocks and chat replies; before, it changed only the raw editor.
+- **Fix:** a slash command's report (`/context`) shows once; Claude Code's
+  adapter sent it twice. Its later sections (tools, skills…) are folded.
+- Each chat reply has a copy button that copies its Markdown.
 
 ## 0.6.4
 

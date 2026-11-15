@@ -9,6 +9,8 @@
 //   run: <command>     run a shell command (a line of its own), e.g. the
 //                      `think` command; its output is logged
 //   slow               take ~1.5s before finishing (cancellable)
+//   echo-report        reply with a report, then the same report again whole
+//                      (as Claude Code's adapter does for /context)
 //
 // $FAKE_NEEDS_LOGIN=1 makes every new session fail with "auth required", so the
 // chat shows its login card.
@@ -116,6 +118,12 @@ acp
       const scene = process.env.FAKE_SCENE ? JSON.parse(fs.readFileSync(process.env.FAKE_SCENE, "utf8")).find((s) => text.includes(s.match)) : null;
       if (scene) {
         await playScene(ctx, sessionId, cwd, scene, active.signal);
+        return { stopReason: "end_turn" };
+      }
+      if (text.includes("echo-report")) {
+        const report = "## Context Usage\n\n**Tokens:** 1k\n\n### Estimated usage by category\n\n| Category | Tokens |\n|---|---|\n| Messages | 1k |\n\n### Skills\n\n| Skill | Tokens |\n|---|---|\n| loop | 120 |\n";
+        await say(report);
+        await say(report + "\n\n");
         return { stopReason: "end_turn" };
       }
       await say("Working on it. ");

@@ -2096,6 +2096,10 @@ export class ProjectRuntime {
 
   private appendStream(kind: "agent" | "thought", text: string): void {
     if (!text) return;
+    // Claude Code's adapter sends a local command's output (/context, /cost…)
+    // twice: streamed, then again whole as the turn's result. A chunk that
+    // repeats the entire message so far is that echo, not new text.
+    if (this.streaming?.kind === kind && this.streaming.text.trim().length > 40 && text.trim() === this.streaming.text.trim()) return;
     if (!this.streaming || this.streaming.kind !== kind) {
       this.finalizeStreaming();
       this.streaming = { id: newId(kind === "agent" ? "a-" : "t-"), kind, text: "", ts: Date.now() };

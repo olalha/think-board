@@ -228,6 +228,41 @@
 .chat-agent .md {
   padding: 0;
 }
+/* Copy under each finished reply: faint until the reply is hovered (always on touch). */
+.chat-reply-actions {
+  display: flex;
+  gap: 2px;
+  margin-top: 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.chat-agent:hover .chat-reply-actions,
+.chat-reply-actions:focus-within {
+  opacity: 1;
+}
+@media (hover: none) {
+  .chat-reply-actions {
+    opacity: 1;
+  }
+}
+/* A slash command's report: compact, its later sections folded. */
+.chat-report .md {
+  font-size: calc(12.5px * var(--text-scale, 1));
+}
+.chat-report-section {
+  margin-top: 6px;
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+}
+.chat-report-section > summary {
+  cursor: pointer;
+  color: var(--text-2);
+  font-weight: 600;
+  font-size: 12.5px;
+}
+.chat-report-section[open] > summary {
+  margin-bottom: 6px;
+}
 .caret {
   display: inline-block;
   width: 7px;

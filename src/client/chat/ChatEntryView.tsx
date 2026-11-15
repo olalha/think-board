@@ -20,10 +20,12 @@ import {
   Globe2,
   MoveRight,
   Bot,
+  Copy,
 } from "lucide-react";
 import type { ChatEntry } from "../../shared/protocol";
 import { MarkdownView } from "../blocks/renderers";
 import { act } from "../lib/project";
+import { toast } from "../lib/toasts";
 
 export const TOOL_ICONS: Record<string, typeof Wrench> = {
   read: FileSearch,
@@ -37,21 +39,69 @@ export const TOOL_ICONS: Record<string, typeof Wrench> = {
   other: Wrench,
 };
 
+/**
+ * A command's report (/context, /cost…) is long and mostly tables: its first
+ * section shows, the rest fold under their headings.
+ */
+function splitReport(text: string): { head: string; sections: { title: string; body: string }[] } {
+  const parts = text.split(/\n(?=### )/);
+  if (parts.length < 3) return { head: text, sections: [] };
+  const [head, first, ...rest] = parts;
+  return {
+    head: `${head}\n${first}`,
+    sections: rest.map((p) => {
+      const nl = p.indexOf("\n");
+      return { title: p.slice(4, nl < 0 ? undefined : nl).trim(), body: nl < 0 ? "" : p.slice(nl + 1) };
+    }),
+  };
+}
+
+function AgentEntry({ text, streaming, command }: { text: string; streaming: boolean; command: boolean }) {
+  const report = command && !streaming ? splitReport(text) : null;
+  return (
+    <div className={`chat-agent${report?.sections.length ? " chat-report" : ""}`}>
+      <MarkdownView source={report ? report.head : text} />
+      {report?.sections.map((s) => (
+        <details key={s.title} className="chat-report-section">
+          <summary>{s.title}</summary>
+          <MarkdownView source={s.body} />
+        </details>
+      ))}
+      {streaming ? <span className="caret" /> : text.trim() && <CopyReply text={text} />}
+    </div>
+  );
+}
+
+function CopyReply({ text }: { text: string }) {
+  const [done, setDone] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text.trim());
+      setDone(true);
+      setTimeout(() => setDone(false), 1500);
+    } catch {
+      toast.error("Copying needs clipboard access in this browser.");
+    }
+  };
+  return (
+    <div className="chat-reply-actions">
+      <button className="icon-btn tiny" aria-label="Copy reply as Markdown" data-tip={done ? "Copied" : "Copy as Markdown"} onClick={() => void copy()}>
+        {done ? <Check size={13} /> : <Copy size={13} />}
+      </button>
+    </div>
+  );
+}
+
 function time(ts: number): string {
   return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-export const ChatEntryView = memo(function ChatEntryView({ entry, streaming }: { entry: ChatEntry; streaming?: boolean }) {
+export const ChatEntryView = memo(function ChatEntryView({ entry, streaming, command }: { entry: ChatEntry; streaming?: boolean; command?: boolean }) {
   switch (entry.kind) {
     case "user":
       return <UserEntry entry={entry} />;
     case "agent":
-      return (
-        <div className="chat-agent">
-          <MarkdownView source={entry.text} />
-          {streaming && <span className="caret" />}
-        </div>
-      );
+      return <AgentEntry text={entry.text} streaming={!!streaming} command={!!command} />;
     case "thought":
       return <ThoughtEntry text={entry.text} streaming={streaming} />;
     case "tool":
