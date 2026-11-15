@@ -67,7 +67,7 @@ export function selectionClip(): Clip | null {
       texts.push(b.content ?? "");
     } else {
       out.push({ ...base, image: { canvas: slug, file: b.file } });
-      texts.push(`[image: ${displayName(n.id)}]`);
+      texts.push(`[${b.type === "pdf" ? "PDF" : "image"}: ${displayName(n.id)}]`);
     }
   }
   const groups = nodes.filter((n): n is GroupNode => n.type === "group");

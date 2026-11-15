@@ -871,6 +871,9 @@ html.presenting .react-flow__background {
 .outline-row svg.type-image {
   color: var(--type-image);
 }
+.outline-row svg.type-pdf {
+  color: var(--type-pdf);
+}
 .outline-row svg {
   flex: none;
 }

@@ -6,7 +6,7 @@
 //   POST /api/projects                     create {name, provider}
 //   PATCH /api/projects/:slug              rename {name}
 //   GET  /api/projects/:slug/files/:file   raw block file (images; downloads); ?rev=<commit> for History
-//   POST /api/projects/:slug/images        upload an image (raw body) → new block, or ?replace=<name>
+//   POST /api/projects/:slug/images        upload an image or a PDF (raw body) → new block, or ?replace=<name> (images)
 //   GET  /api/projects/:slug/drawings/:name/base   a drawing's original image (?file=base-….png: that one)
 //   POST /api/projects/:slug/drawings/:name/base   a photo to become a drawing's page (raw body) → {file, width, height}
 //   GET  /api/projects/:slug/reference-files          the files/ folder: [{path, size, mtime}]
@@ -26,7 +26,7 @@ import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest }
 import fastifyStatic from "@fastify/static";
 import fastifyWebsocket from "@fastify/websocket";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { EXTENSION_PRECEDENCE, IMAGE_MIME, parseBlockFile } from "../shared/blocks.js";
+import { EXTENSION_PRECEDENCE, IMAGE_MIME, isTextType, parseBlockFile, PDF_MIME } from "../shared/blocks.js";
 import type { ClientMessage, ServerMessage } from "../shared/protocol.js";
 import type { ConfigStore, Paths } from "./config.js";
 import { providerHome } from "./agent/env.js";
@@ -62,9 +62,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     trustProxy: true,
   });
 
-  // Raw bodies for image uploads; JSON (and text/plain JSON from sendBeacon) otherwise.
+  // Raw bodies for image and PDF uploads; JSON (and text/plain JSON from sendBeacon) otherwise.
   app.addContentTypeParser(/^image\//, { parseAs: "buffer" }, (_req, body, done) => done(null, body));
-  app.addContentTypeParser("application/octet-stream", { parseAs: "buffer" }, (_req, body, done) => done(null, body));
+  app.addContentTypeParser(["application/octet-stream", "application/pdf"], { parseAs: "buffer" }, (_req, body, done) => done(null, body));
   app.addContentTypeParser("text/plain", { parseAs: "string" }, (_req, body, done) => {
     try {
       done(null, JSON.parse(body as string));
@@ -262,7 +262,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         return reply.code(404).send({ error: "Not found." });
       }
     }
-    const mime = IMAGE_MIME[parsed.ext] ?? (parsed.ext === "html" ? "text/plain; charset=utf-8" : "text/plain; charset=utf-8");
+    const mime = IMAGE_MIME[parsed.ext] ?? (parsed.ext === "pdf" ? PDF_MIME : "text/plain; charset=utf-8");
     reply.header("Content-Type", mime);
     // Never render agent-written HTML as a page in our origin.
     reply.header("Content-Security-Policy", "sandbox");
@@ -314,7 +314,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       .sort((a, b) => EXTENSION_PRECEDENCE.indexOf(a.p!.ext) - EXTENSION_PRECEDENCE.indexOf(b.p!.ext));
     const hit = candidates[0];
     if (!hit) return reply.code(404).send({ error: "Not found." });
-    const content = hit.p!.type === "image" ? undefined : await fs.promises.readFile(path.join(store.dir(slug), hit.f), "utf8");
+    const content = !isTextType(hit.p!.type) ? undefined : await fs.promises.readFile(path.join(store.dir(slug), hit.f), "utf8");
     return { name, file: hit.f, type: hit.p!.type, content };
   });
 
@@ -333,7 +333,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       if (!Buffer.isBuffer(body) || body.length === 0) throw new UserError("Send the image as the request body.");
       const runtime = await runtimeFor(slug);
       const mime = String(req.headers["content-type"] ?? "").split(";")[0].trim();
-      return await runtime.putImage(body, mime, {
+      return await runtime.putUpload(body, mime, {
         x: q.x !== undefined ? Number(q.x) : undefined,
         y: q.y !== undefined ? Number(q.y) : undefined,
         replace: q.replace || undefined,

@@ -27,6 +27,8 @@ How versions and releases work: "Versioning and releases" in
   (spreadsheets, documents, archives, data) in the canvas's `files/` folder: upload or drop
   files, preview text, CSV and images, download, rename, delete. The agent reads them and
   can leave exports there.
+- **PDF blocks:** drop, paste or upload a PDF (up to 25 MB) to read it on the canvas; agents
+  read it too, Codex through its extracted text.
 
 ## 0.6.4
 

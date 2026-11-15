@@ -19,10 +19,10 @@ export interface BlockInfo {
   name: string;
   file: string;
   type: BlockType;
-  /** Content hash; for images it doubles as the cache-busting version. */
+  /** Content hash; for images and PDFs it doubles as the cache-busting version. */
   hash: string;
   size: number;
-  /** Text content (markdown, mermaid, html). Absent for images. */
+  /** Text content (markdown, mermaid, html). Absent for images and PDFs. */
   content?: string;
 }
 
@@ -377,7 +377,7 @@ export interface PasteBlock {
   type: BlockType;
   /** Text blocks: the content. */
   content?: string;
-  /** Image blocks: the file to copy, from a canvas on this server. */
+  /** Binary blocks (images, PDFs): the file to copy, from a canvas on this server. */
   image?: { canvas: string; file: string };
   x: number;
   y: number;

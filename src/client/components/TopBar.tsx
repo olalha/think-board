@@ -45,7 +45,7 @@ export function TopBar() {
         <ToolButton
           icon={<ImageIcon size={16} />}
           label="Image"
-          tip="New image: upload one (I), or a blank page to draw on (S)"
+          tip="New image or PDF: upload one (I), or a blank page to draw on (S)"
           disabled={locked}
           onClick={(e) => {
             const r = e.currentTarget.getBoundingClientRect();

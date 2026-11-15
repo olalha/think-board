@@ -1,6 +1,6 @@
 #!/bin/sh
 # think — the commands agents use to work on a think canvas. A canvas is a
-# folder of block files (Markdown, Mermaid, HTML, images) shown as a board:
+# folder of block files (Markdown, Mermaid, HTML, images, PDFs) shown as a board:
 # agents edit those files directly, and use this command for everything else
 # about the canvas — layout, frames, links, views, comments, pointing at
 # blocks, and (for agents from outside the app) joining, the lock and their
@@ -56,7 +56,7 @@ canvas_dir() {
 overview() {
   cat <<'EOF'
 think — work on a think canvas: a folder of block files (.md, .mmd, .html,
-images) that people see as a board. Edit the block files directly, like any
+images, PDFs) that people see as a board. Edit the block files directly, like any
 file; use these commands for everything else about the canvas. The canvas's
 AGENTS.md explains how a canvas works — read it before you change anything.
 

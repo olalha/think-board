@@ -19,7 +19,7 @@ settings, managed from the app: see docs/architecture.md, "Canvas format".)
 | Key | Default | Meaning |
 |---|---|---|
 | `gridSize` | `20` | grid in px; positions and sizes snap to it |
-| `html.liveZoomThreshold` | `0.45` | HTML blocks mount a live iframe only at or above this zoom (and on screen) |
+| `html.liveZoomThreshold` | `0.45` | HTML blocks mount a live iframe only at or above this zoom (and on screen); PDF blocks draw their pages less sharp below it |
 | `validation.maxAttempts` | `2` | automatic validation follow-ups per turn |
 | `git.defaultAutosaveSeconds` | `60` | autosave for new canvases (and canvases upgraded from 0.2): how long after the first unsaved edit it becomes a point in History. `0` = only on Save now. Each canvas then keeps its own setting in its `think.json`; edits are always written to disk as you type, and committed before every agent turn and when the canvas closes |
 | `agent.idleShutdownSeconds` | `60` | stop a canvas's agent this long after its last tab closes |

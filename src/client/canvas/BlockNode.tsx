@@ -2,8 +2,8 @@
 // toggle, menu) and a body that is either the raw editor or the renderer.
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Handle, NodeResizer, Position, useStore, type NodeProps, type ReactFlowState } from "@xyflow/react";
-import { AlertCircle, Check, Code2, Eye, FileText, Globe, Image as ImageIcon, Lock, MoreHorizontal, Pencil, PenLine, Shield, Undo2, Workflow, WrapText } from "lucide-react";
-import { BLOCK_SIZES, displayName, isValidName, toBlockName, type BlockType } from "../../shared/blocks";
+import { AlertCircle, BookOpenText, Check, Code2, Eye, FileText, Globe, Image as ImageIcon, Lock, MoreHorizontal, Pencil, PenLine, Shield, Undo2, Workflow, WrapText } from "lucide-react";
+import { BLOCK_SIZES, displayName, isTextType, isValidName, toBlockName, type BlockType } from "../../shared/blocks";
 import type { BlockInfo } from "../../shared/protocol";
 import { fileUrl } from "../lib/api";
 import { act, layout } from "../lib/project";
@@ -13,7 +13,7 @@ import { effectiveTheme, useSettings } from "../lib/settings";
 // CodeMirror is sizeable: loaded on first edit (and preloaded when idle, see Board).
 const CodeEditor = lazy(() => import("../blocks/CodeEditor").then((m) => ({ default: m.CodeEditor })));
 const DrawingSession = lazy(() => import("../drawing/DrawingEditor"));
-import { HtmlView, ImageView, MarkdownView, MermaidView } from "../blocks/renderers";
+import { HtmlView, ImageView, MarkdownView, MermaidView, PdfView } from "../blocks/renderers";
 import { useCanvasUi } from "./ui-state";
 import { renameBlock, startDrawing, stopDrawing, zoomToBlock } from "./actions";
 import { CommentButton } from "../components/Comments";
@@ -23,6 +23,7 @@ export const TYPE_META: Record<BlockType, { label: string; icon: typeof FileText
   mermaid: { label: "Mermaid diagram", icon: Workflow },
   html: { label: "HTML", icon: Globe },
   image: { label: "Image", icon: ImageIcon },
+  pdf: { label: "PDF", icon: BookOpenText },
 };
 
 const SIDE_POS = { top: Position.Top, right: Position.Right, bottom: Position.Bottom, left: Position.Left } as const;
@@ -91,7 +92,7 @@ export const BlockNode = memo(function BlockNode({ id, selected, width, height }
   const type: BlockType = block?.type ?? "markdown";
   const Icon = TYPE_META[type].icon;
   const drawing = useCanvasUi((s) => s.drawing === id) && type === "image" && !tt;
-  const effectiveMode = type === "image" ? (drawing ? "raw" : "rendered") : mode;
+  const effectiveMode = type === "image" ? (drawing ? "raw" : "rendered") : type === "pdf" ? "rendered" : mode;
   const sizes = BLOCK_SIZES[type];
 
   // Long lines wrap unless this block says otherwise; Mermaid starts unwrapped.
@@ -101,6 +102,7 @@ export const BlockNode = memo(function BlockNode({ id, selected, width, height }
   const toggleMode = useCallback(() => {
     if (!block) return;
     if (block.type === "image") return useCanvasUi.getState().drawing === id ? stopDrawing() : startDrawing(id);
+    if (!isTextType(block.type)) return; // a PDF has no edit mode
     const next = modeOf(id, block.type) === "raw" ? "rendered" : "raw";
     setMode(id, next);
     if (next === "raw") useBoard.setState({ focusRequest: id });
@@ -183,6 +185,9 @@ export const BlockNode = memo(function BlockNode({ id, selected, width, height }
       case "image":
         body = slug ? <ImageView src={tt ? `${fileUrl(slug, block.file)}?rev=${block.hash}` : fileUrl(slug, block.file, block.hash)} alt={displayName(id)} /> : null;
         break;
+      case "pdf":
+        body = slug ? <PdfBody name={id} src={tt ? `${fileUrl(slug, block.file)}?rev=${block.hash}` : fileUrl(slug, block.file, block.hash)} selected={!!selected} width={width} height={height} /> : null;
+        break;
     }
   }
 
@@ -190,7 +195,7 @@ export const BlockNode = memo(function BlockNode({ id, selected, width, height }
     <div
       className={`block type-${type} ${selected ? "selected" : ""} ${locked ? "locked" : ""} mode-${effectiveMode} ${ttClass} ${canEdit && liveLocked ? "editable-in-turn" : ""} ${flash ? "flash" : ""} ${isProtected ? "protected" : ""} ${ring ? `agent-here${ring.by ? " by-guest" : ""}` : ""}`}
       onDoubleClick={(e) => {
-        if (effectiveMode === "rendered" && canEdit && !(type === "image" && liveLocked)) {
+        if (effectiveMode === "rendered" && canEdit && type !== "pdf" && !(type === "image" && liveLocked)) {
           e.stopPropagation();
           toggleMode();
         }
@@ -266,7 +271,7 @@ export const BlockNode = memo(function BlockNode({ id, selected, width, height }
           </span>
         )}
         <span className="block-spacer" />
-        {type !== "image" && !tt && effectiveMode === "raw" && (
+        {isTextType(type) && !tt && effectiveMode === "raw" && (
           <button
             className={`icon-btn small nodrag ${wrap ? "active" : ""}`}
             data-tip={wrap ? "Long lines wrap (Alt+Z)" : "Long lines scroll sideways (Alt+Z)"}
@@ -294,7 +299,7 @@ export const BlockNode = memo(function BlockNode({ id, selected, width, height }
             {drawing ? <Check size={14} /> : <PenLine size={14} />}
           </button>
         )}
-        {type !== "image" && !tt && (
+        {isTextType(type) && !tt && (
           <button
             className="icon-btn small nodrag"
             data-tip={effectiveMode === "raw" ? "Show rendered (Esc)" : "Edit raw (Enter)"}
@@ -392,11 +397,10 @@ const zoomSelector = (s: ReactFlowState) => s.transform[2];
  * lightweight placeholder. The iframe only takes pointer events once the block
  * is selected, so it never swallows canvas drags or zooms.
  */
-function HtmlBody({ name, source, selected, width, height }: { name: string; source: string; selected: boolean; width?: number; height?: number }) {
-  const pref = useSettings((s) => s.htmlPreviews);
-  const threshold = useBoard((s) => s.htmlLiveZoom);
+/** Whether a block is on screen (or within a margin of it). */
+function useOnScreen(name: string, width?: number, height?: number): boolean {
   const node = useStore(useCallback((s: ReactFlowState) => s.nodeLookup.get(name), [name]));
-  const visible = useStore(
+  return useStore(
     useCallback(
       (s: ReactFlowState) => {
         if (!node) return false;
@@ -412,6 +416,12 @@ function HtmlBody({ name, source, selected, width, height }: { name: string; sou
       [node, width, height],
     ),
   );
+}
+
+function HtmlBody({ name, source, selected, width, height }: { name: string; source: string; selected: boolean; width?: number; height?: number }) {
+  const pref = useSettings((s) => s.htmlPreviews);
+  const threshold = useBoard((s) => s.htmlLiveZoom);
+  const visible = useOnScreen(name, width, height);
   const zoomOk = useStore(useCallback((s: ReactFlowState) => zoomSelector(s) >= threshold, [threshold]));
   const theme = useTheme();
   const live = pref === "always" ? visible : pref === "never" ? false : visible && zoomOk;
@@ -429,4 +439,28 @@ function HtmlBody({ name, source, selected, width, height }: { name: string; sou
       {!selected && <div className="html-shield" title="Select the block to interact with it" />}
     </div>
   );
+}
+
+// ---------------------------------------------------------------- pdf body
+
+/**
+ * A PDF block: pdf.js draws its pages only while the block is on screen (a
+ * placeholder otherwise, which frees the pages' memory), and less sharp when
+ * zoomed out past the HTML live-preview zoom. Selected, it scrolls with the
+ * wheel (and with a finger on touch screens) like a Markdown block.
+ */
+function PdfBody({ name, src, selected, width, height }: { name: string; src: string; selected: boolean; width?: number; height?: number }) {
+  const visible = useOnScreen(name, width, height);
+  const threshold = useBoard((s) => s.htmlLiveZoom);
+  const zoomOk = useStore(useCallback((s: ReactFlowState) => zoomSelector(s) >= threshold, [threshold]));
+  const touch = useMedia(TOUCH);
+  if (!visible) {
+    return (
+      <div className="html-placeholder pdf-placeholder">
+        <BookOpenText size={22} />
+        <span>PDF</span>
+      </div>
+    );
+  }
+  return <PdfView src={src} quality={zoomOk ? "full" : "thumb"} scrollClass={selected ? `nowheel ${touch ? "nopan" : ""}` : ""} />;
 }

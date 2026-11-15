@@ -5,13 +5,28 @@
 // the very same components, which is what a future annotation feature needs
 // to screenshot a block exactly as the user sees it.
 
-import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
+import { lazy, memo, Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { AlertTriangle, ImageOff } from "lucide-react";
 import { withTheme } from "./html-theme";
 import { parseBlockFile } from "../../shared/blocks";
 import { cachedMermaid, renderMermaid, type MermaidResult } from "./mermaid";
+import type { PdfViewProps } from "./PdfView";
+
+// ---------------------------------------------------------------- pdf
+
+// pdf.js is large: the viewer and the library load on the first PDF shown.
+const LazyPdfView = lazy(() => import("./PdfView"));
+
+/** A PDF, its pages one under another, drawn only near the visible part. */
+export function PdfView(props: PdfViewProps) {
+  return (
+    <Suspense fallback={<div className="pdf-message"><span className="spinner" /></div>}>
+      <LazyPdfView {...props} />
+    </Suspense>
+  );
+}
 
 // ---------------------------------------------------------------- markdown
 

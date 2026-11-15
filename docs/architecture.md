@@ -35,6 +35,7 @@ outside agents ─ bin/think ── files in ROOT/guests/ ──▶ GuestBridge 
 | `src/server/migrations.ts` | canvas format upgrades, run on open, committed as the app |
 | `src/server/comments.ts` | `comments.json`: comments on blocks, frames and the canvas |
 | `src/shared/drawing.ts`, `src/server/drawings.ts` | drawings on images: the model, its SVG, validation and rendering |
+| `src/server/pdf-text.ts` | the text of PDF blocks, extracted for agents into `.think/text/` |
 | `src/server/agent/host.ts` | spawns the ACP agent, initialize, session resume/load/new, permission mode, auth state |
 | `src/server/agent/login.ts` | the provider-agnostic login terminal (node-pty) |
 | `src/server/agent/process.ts`, `runner.ts` | start processes locally or in the agents container over a Unix socket |
@@ -205,6 +206,21 @@ fits it and is dropped — History keeps it. *Replace image…* in the app offer
 a new picture or a blank page (a colour), and asks first when there is a
 drawing: keep it on the new page, or start fresh. The agent sees only the finished
 picture; its change note says which images were drawn on.
+
+## PDF blocks
+
+A `.pdf` at the top level is a block, shown read-only: the client draws its
+pages with pdf.js (`blocks/PdfView.tsx`, loaded on first use, its worker bundled
+from the package), only the pages near the visible part and only while the
+block is on screen, less sharp when zoomed out. Uploads go through the image
+route (`POST …/images`), up to `MAX_PDF_BYTES` (25 MB).
+
+Claude Code reads a PDF itself; Codex can't. So the server keeps each PDF
+block's text in `.think/text/<name>.pdf.txt` (pdf.js's Node build, page by
+page, `pdf-text.ts`): rebuilt in the background when a PDF appears or changes
+(`index.json` records which version each text came from), removed when it goes,
+and awaited before a turn starts. It is derived and app-private — `.think/` is
+git-ignored, so it is never committed.
 
 ## Outside agents
 

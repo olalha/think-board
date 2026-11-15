@@ -7,7 +7,7 @@ import type { BlockType } from "../../shared/blocks";
 import { displayName } from "../../shared/blocks";
 import { fileUrl, getJSON } from "../lib/api";
 import { effectiveTheme, useSettings } from "../lib/settings";
-import { HtmlView, ImageView, MarkdownView, MermaidView } from "../blocks/renderers";
+import { HtmlView, ImageView, MarkdownView, MermaidView, PdfView } from "../blocks/renderers";
 
 interface BlockData {
   name: string;
@@ -44,6 +44,7 @@ export function RenderPage({ slug, block }: { slug: string; block: string }) {
       {data.type === "mermaid" && <MermaidView source={data.content ?? ""} theme={theme} />}
       {data.type === "html" && <HtmlView source={data.content ?? ""} title={displayName(block)} />}
       {data.type === "image" && <ImageView src={fileUrl(slug, data.file)} alt={displayName(block)} />}
+      {data.type === "pdf" && <PdfView src={fileUrl(slug, data.file)} />}
     </div>
   );
 }
