@@ -48,11 +48,23 @@ function lockedGuard(): boolean {
   return false;
 }
 
+/**
+ * The block this tab is creating right now, or created last: a paste that
+ * lands before its editor has focus belongs in it, not in a new block.
+ */
+let lastCreated: { name: Promise<string | null>; at: number } | null = null;
+
+export function recentlyCreated(withinMs: number): Promise<string | null> | null {
+  return lastCreated && Date.now() - lastCreated.at < withinMs ? lastCreated.name : null;
+}
+
 export async function createBlock(type: Exclude<BlockType, "image">, at?: { x: number; y: number }): Promise<void> {
   if (lockedGuard()) return;
   const p = at ?? placementPoint();
   const size = BLOCK_SIZES[type];
-  const r = await act<{ name: string }>({ type: "block.create", blockType: type, x: p.x - size.width / 2, y: p.y - 40 });
+  const req = act<{ name: string }>({ type: "block.create", blockType: type, x: p.x - size.width / 2, y: p.y - 40 });
+  lastCreated = { name: req.then((r) => r?.name ?? null), at: Date.now() };
+  const r = await req;
   if (!r) return;
   recordCreate(r.name);
   const mode = useSettings.getState().newBlockMode;

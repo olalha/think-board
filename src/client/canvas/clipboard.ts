@@ -8,13 +8,13 @@
 // custom types (Safari between tabs) fall back to a copy kept in localStorage,
 // recognised by its text.
 import { groupMembers, type CanvasEdge, type CanvasNode, type GroupNode } from "../../shared/canvas";
-import { displayName, isTextType, toBlockName } from "../../shared/blocks";
+import { displayName, initialContent, isTextType, toBlockName } from "../../shared/blocks";
 import type { PasteBlock } from "../../shared/protocol";
 import { act, currentSlug, layout } from "../lib/project";
 import { loadLocal, saveLocal } from "../lib/settings";
 import { useBoard } from "../lib/store";
 import { toast } from "../lib/toasts";
-import { deleteBlocks, flow, placementPoint, select } from "./actions";
+import { deleteBlocks, flow, placementPoint, recentlyCreated, recordEdit, select } from "./actions";
 import { record } from "./undo";
 
 const MIME = "application/x-think-blocks";
@@ -163,8 +163,65 @@ export function duplicateSelection(): void {
 }
 
 /** Text pasted onto the canvas becomes a Markdown block, named after its first line. */
+/**
+ * Text pasted onto the canvas while a fresh block waits for it — one just
+ * created (its editor may not have focus yet) or one selected and still
+ * untouched — goes into that block instead of becoming another one.
+ */
+async function freshTarget(): Promise<string | null> {
+  const isFresh = (name: string | null): name is string => {
+    const b = name ? useBoard.getState().blocks[name] : undefined;
+    return !!b && isTextType(b.type) && b.content !== undefined && b.content.trim() === initialContent(b.type, b.name).trim();
+  };
+  const ui = useBoard.getState();
+  const selected = flow()?.getNodes().filter((n) => n.selected).map((n) => n.id) ?? [];
+  if (selected.length === 1 && isFresh(selected[0])) return selected[0];
+  if (isFresh(ui.focusRequest)) return ui.focusRequest;
+  const pending = recentlyCreated(3000);
+  if (selected.length === 0 && pending) {
+    const name = await pending;
+    if (name && (await contentLoaded(name)) && isFresh(name)) return name;
+  }
+  return null;
+}
+
+/** Resolves once the block's text has reached this tab (false after `ms`). */
+function contentLoaded(name: string, ms = 2000): Promise<boolean> {
+  const ready = () => useBoard.getState().blocks[name]?.content !== undefined;
+  if (ready()) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const stop = useBoard.subscribe(() => {
+      if (!ready()) return;
+      stop();
+      clearTimeout(t);
+      resolve(true);
+    });
+    const t = setTimeout(() => {
+      stop();
+      resolve(ready());
+    }, ms);
+  });
+}
+
+async function fillBlock(name: string, text: string): Promise<boolean> {
+  const b = useBoard.getState().blocks[name];
+  if (!b || b.content === undefined) return false;
+  const before = b.content;
+  const head = before.trim();
+  const body = text.endsWith("\n") ? text : `${text}\n`;
+  // A pasted text that brings its own heading replaces the placeholder one.
+  const after = /^#\s/.test(text.trimStart()) || b.type !== "markdown" ? body : `${head}\n\n${body}`;
+  if ((await act({ type: "user.edit", name, content: after })) === null) return false;
+  const blocks = useBoard.getState().blocks;
+  if (blocks[name]) useBoard.setState({ blocks: { ...blocks, [name]: { ...blocks[name], content: after } } });
+  recordEdit(name, before, after);
+  return true;
+}
+
 export async function pasteText(text: string): Promise<void> {
   if (locked() || !text.trim()) return;
+  const target = await freshTarget();
+  if (target && (await fillBlock(target, text))) return;
   const first = text.trim().split("\n")[0].replace(/^#+\s*/, "").slice(0, 40);
   const at = placementPoint();
   const clip: Clip = { v: 1, canvas: currentSlug() ?? "", groups: [], edges: [], text, blocks: [{ from: toBlockName(first) || "note", type: "markdown", content: text.endsWith("\n") ? text : `${text}\n`, x: at.x, y: at.y, width: 360, height: 260 }] };

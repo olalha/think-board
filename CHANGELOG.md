@@ -5,6 +5,11 @@ before 1.0, a minor version may change things that are not backwards compatible.
 How versions and releases work: "Versioning and releases" in
 [docs/development.md](docs/development.md).
 
+## Unreleased
+
+- **Fix:** text pasted just after creating a block, or with a fresh block
+  selected, goes into that block instead of also becoming a new one.
+
 ## 0.6.4
 
 - **Security:** Node 24.22.3 in both containers (fixes for HTTP/2 and TLS).
