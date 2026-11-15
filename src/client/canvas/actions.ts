@@ -5,7 +5,7 @@ import type { CanvasView, ViewList } from "../../shared/canvas";
 import type { Drawing } from "../../shared/drawing";
 import { fileUrl, preloadImage, uploadImage } from "../lib/api";
 import { act, currentSlug, layout } from "../lib/project";
-import { labelOf, setMode, setSidePanelOpen, titleIn, useBoard } from "../lib/store";
+import { labelOf, setChatOpen, setMode, setSidePanelOpen, titleIn, useBoard } from "../lib/store";
 import { useSettings } from "../lib/settings";
 import { isPhone, matches, NARROW } from "../lib/device";
 import { toast } from "../lib/toasts";
@@ -405,6 +405,16 @@ export function fitAll(): void {
 export function jumped(go: () => void): void {
   go();
   if (matches(NARROW)) setSidePanelOpen(false);
+}
+
+/** A `[[link]]` chip was clicked: fly to its block (on a narrow screen, out from under the panels). */
+export function followLink(name: string): void {
+  if (!useBoard.getState().blocks[name]) return;
+  zoomToBlock(name, { select: true });
+  if (matches(NARROW)) {
+    setSidePanelOpen(false);
+    setChatOpen(false);
+  }
 }
 
 /** Fly to a block (or group), select it and flash it so the eye finds it. */

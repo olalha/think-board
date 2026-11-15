@@ -18,6 +18,7 @@ import { HtmlView, ImageView, MarkdownView, MermaidView, PdfView } from "../bloc
 import { useCanvasUi } from "./ui-state";
 import { renameBlock, startDrawing, stopDrawing, zoomToBlock } from "./actions";
 import { CommentButton } from "../components/Comments";
+import { useLinkChips } from "./link-chips";
 
 export const TYPE_META: Record<BlockType, { label: string; icon: typeof FileText }> = {
   markdown: { label: "Markdown", icon: FileText },
@@ -91,6 +92,7 @@ export const BlockNode = memo(function BlockNode({ id, selected, width, height }
   const renaming = useCanvasUi((s) => s.renaming === id);
   const flash = useCanvasUi((s) => s.flash === id);
   const theme = useTheme();
+  const linkChips = useLinkChips();
 
   const type: BlockType = block?.type ?? "markdown";
   const Icon = TYPE_META[type].icon;
@@ -175,7 +177,7 @@ export const BlockNode = memo(function BlockNode({ id, selected, width, height }
       case "markdown":
         body = (
           <div className={`block-scroll ${selected ? `nowheel ${touch ? "nopan" : ""}` : ""}`}>
-            <MarkdownView source={block.content ?? ""} resolveFile={resolveFile} />
+            <MarkdownView source={block.content ?? ""} resolveFile={resolveFile} {...linkChips} />
           </div>
         );
         break;

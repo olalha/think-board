@@ -41,6 +41,7 @@ import { blockLabel, type BlockType } from "../../shared/blocks";
 import { groupMembers, type CanvasView, type ViewList } from "../../shared/canvas";
 import type { HistoryEntry, HistorySnapshot } from "../../shared/protocol";
 import { MarkdownView } from "../blocks/renderers";
+import { useLinkChips } from "../canvas/link-chips";
 import { act, flushEdits, layout, request } from "../lib/project";
 import { labelOf, panelMax, useBoard } from "../lib/store";
 import { PHONE, useMedia } from "../lib/device";
@@ -427,6 +428,7 @@ function ViewName({ view, list, onDone }: { view: CanvasView; list: ViewList; on
 
 function Readme() {
   const readme = useBoard((s) => s.readme);
+  const links = useLinkChips();
   const locked = useBoard((s) => s.lock.locked);
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(readme ?? "");
@@ -491,7 +493,7 @@ function Readme() {
         />
       ) : (
         <div className="readme-view" onDoubleClick={() => !locked && setEditing(true)}>
-          {readme ? <MarkdownView source={readme} /> : <p className="side-empty">No README yet.</p>}
+          {readme ? <MarkdownView source={readme} {...links} /> : <p className="side-empty">No README yet.</p>}
           {placeholder && <p className="side-empty">Describe what this canvas is for — or ask the agent to write the README from what's on the board.</p>}
         </div>
       )}
