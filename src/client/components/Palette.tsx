@@ -19,8 +19,8 @@ import {
   Settings,
   Workflow,
 } from "lucide-react";
-import { displayName, type BlockType } from "../../shared/blocks";
-import { useBoard, setChatOpen, setSidePanelOpen } from "../lib/store";
+import { blockLabel, type BlockType } from "../../shared/blocks";
+import { useBoard, setChatOpen, setSidePanelOpen, titleIn } from "../lib/store";
 import { loadLocal, saveLocal, useSettings } from "../lib/settings";
 import { modLabel } from "../lib/keys";
 import { createBlock, fitAll, goToView, zoomToBlock } from "../canvas/actions";
@@ -119,6 +119,7 @@ function PaletteInner() {
       const recent = loadLocal<string[]>(recentKey, []);
       saveLocal(recentKey, [key, ...recent.filter((k) => k !== key)].slice(0, 6));
     };
+    const label = (name: string) => blockLabel(name, { title: titleIn(canvas, name) });
     const blockItem = (name: string, section: Item["section"], score: number, hits?: number[], detail?: string): Item | null => {
       const b = blocks[name];
       if (!b) return null;
@@ -127,7 +128,7 @@ function PaletteInner() {
         key: `b:${name}`,
         section,
         icon: <Icon size={15} />,
-        title: displayName(name),
+        title: label(name),
         detail: detail ?? firstHeading(b.content) ?? b.file,
         score,
         hits,
@@ -141,9 +142,11 @@ function PaletteInner() {
     // Blocks: by name first, then by heading or content.
     for (const name of Object.keys(blocks)) {
       const b = blocks[name];
-      const byName = fuzzy(query, displayName(name));
+      // By its label (highlighted), or by its file name when the title reads differently.
+      const byLabel = fuzzy(query, label(name));
+      const byName = byLabel ?? (query.length > 1 ? fuzzy(query, name) : null);
       if (byName) {
-        const it = blockItem(name, "Blocks", byName.score + 10, byName.hits);
+        const it = blockItem(name, "Blocks", byName.score + 10, byLabel?.hits);
         if (it) out.push(it);
         continue;
       }

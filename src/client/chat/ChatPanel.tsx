@@ -3,7 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { ArrowDown, ArrowLeftRight, ArrowUp, ChevronUp, KeyRound, LocateFixed, MessageSquarePlus, MoreHorizontal, RotateCcw, Square, TriangleAlert, X } from "lucide-react";
 import type { AgentCommand, AgentStatus, ChatEntry } from "../../shared/protocol";
 import { act, sendPrompt } from "../lib/project";
-import { panelMax, setChatOpen, setChatTab, useBoard } from "../lib/store";
+import { panelMax, setChatOpen, setChatTab, titleIn, useBoard } from "../lib/store";
 import { useSettings } from "../lib/settings";
 import { matches, TOUCH } from "../lib/device";
 import { Menu } from "../components/Menu";
@@ -11,7 +11,7 @@ import { setProviderAuth } from "../lib/api";
 import { toast } from "../lib/toasts";
 import { ChatEntryView, ToolGroup } from "./ChatEntryView";
 import { ChatTabs, GuestComposer, GuestHeader, GuestThread, useGuestTabs } from "./GuestTabs";
-import { displayName } from "../../shared/blocks";
+import { blockLabel } from "../../shared/blocks";
 
 export function ChatPanel() {
   const open = useBoard((s) => s.chatOpen);
@@ -543,11 +543,13 @@ function Composer() {
   const mentionMatches = useMemo(() => {
     if (!mention || cmdDismissed) return [];
     const q = mention[2].toLowerCase();
+    const canvas = useBoard.getState().canvas;
+    const label = (n: string) => blockLabel(n, { title: titleIn(canvas, n) });
     return Object.keys(blocks)
-      .filter((n) => n.includes(q) || displayName(n).toLowerCase().includes(q))
+      .filter((n) => n.includes(q) || label(n).toLowerCase().includes(q))
       .sort((a, b) => Number(!a.startsWith(q)) - Number(!b.startsWith(q)) || a.localeCompare(b))
       .slice(0, 8)
-      .map((n) => ({ name: n, description: displayName(n) + (blocks[n].type === "image" ? " · image" : blocks[n].type === "pdf" ? " · PDF" : "") }));
+      .map((n) => ({ name: n, description: label(n) + (blocks[n].type === "image" ? " · image" : blocks[n].type === "pdf" ? " · PDF" : "") }));
   }, [mention?.[2], mention === null, blocks, cmdDismissed]);
   const pickMention = (name: string) => {
     const before = text.slice(0, caret).replace(/@([a-z0-9-]*)$/i, `@${name} `);

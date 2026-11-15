@@ -9,7 +9,7 @@ import { modLabel } from "../lib/keys";
 import { matches, TOUCH } from "../lib/device";
 import { useSettings, type Settings as S } from "../lib/settings";
 import { act } from "../lib/project";
-import { useBoard } from "../lib/store";
+import { labelOf, useBoard } from "../lib/store";
 import { useCanvasUi } from "../canvas/ui-state";
 
 export function Dialog({ title, icon, onClose, children, footer, wide, tall }: { title: string; icon?: ReactNode; onClose: () => void; children: ReactNode; footer?: ReactNode; wide?: boolean; tall?: boolean }) {
@@ -70,7 +70,7 @@ export function DialogHost({ inBoard }: { inBoard: boolean }) {
       {dialog === "settings" && <SettingsDialog inBoard={inBoard} onClose={() => setDialog(null)} />}
       {confirm && <ConfirmDialog />}
       {issues && (
-        <Dialog title={`Problems in ${displayName(issues.id)}`} icon={<AlertCircle size={18} className="danger-text" />} onClose={() => useCanvasUi.getState().hideIssues()}>
+        <Dialog title={`Problems in ${labelOf(issues.id)}`} icon={<AlertCircle size={18} className="danger-text" />} onClose={() => useCanvasUi.getState().hideIssues()}>
           <pre className="issues-pre">{issues.text}</pre>
           <p className="muted small">The agent is told about validation errors automatically after its turn. You can also ask it to fix them.</p>
         </Dialog>

@@ -37,12 +37,12 @@ import {
   Workflow,
   X,
 } from "lucide-react";
-import { blockLabel, displayName, type BlockType } from "../../shared/blocks";
+import { blockLabel, type BlockType } from "../../shared/blocks";
 import { groupMembers, type CanvasView, type ViewList } from "../../shared/canvas";
 import type { HistoryEntry, HistorySnapshot } from "../../shared/protocol";
 import { MarkdownView } from "../blocks/renderers";
 import { act, flushEdits, layout, request } from "../lib/project";
-import { panelMax, useBoard } from "../lib/store";
+import { labelOf, panelMax, useBoard } from "../lib/store";
 import { PHONE, useMedia } from "../lib/device";
 import { useSettings, type Settings } from "../lib/settings";
 import { toast } from "../lib/toasts";
@@ -518,10 +518,10 @@ function entryTitle(e: HistoryEntry): string {
   if (e.kind === "user") {
     const s = e.summary;
     const bits: string[] = [];
-    if (s.added.length) bits.push(`added ${s.added.map(displayName).join(", ")}`);
-    if (s.edited.length) bits.push(`edited ${s.edited.map(displayName).join(", ")}`);
-    if (s.renamed.length) bits.push(`renamed ${s.renamed.map(([a, b]) => `${displayName(a)} → ${displayName(b)}`).join(", ")}`);
-    if (s.removed.length) bits.push(`deleted ${s.removed.map(displayName).join(", ")}`);
+    if (s.added.length) bits.push(`added ${s.added.map(labelOf).join(", ")}`);
+    if (s.edited.length) bits.push(`edited ${s.edited.map(labelOf).join(", ")}`);
+    if (s.renamed.length) bits.push(`renamed ${s.renamed.map(([a, b]) => `${labelOf(a)} → ${labelOf(b)}`).join(", ")}`);
+    if (s.removed.length) bits.push(`deleted ${s.removed.map(labelOf).join(", ")}`);
     if (s.readme) bits.push("edited the README");
     if (s.files?.length) bits.push(s.files.length === 1 ? `changed files/${s.files[0]}` : `changed ${s.files.length} files in files/`);
     if (!bits.length && s.layout.length) bits.push("rearranged the canvas");
@@ -631,10 +631,10 @@ function History() {
               </button>
               {(s.added.length + s.edited.length + s.removed.length + s.renamed.length > 0 || s.layout.length > 0) && (
                 <div className="history-changes">
-                  {s.added.map((n) => <span key={`a${n}`} className="chip added" onClick={() => void preview(e, entries ?? []).then(() => zoomToBlock(n, { select: true }))}>+ {displayName(n)}</span>)}
-                  {s.edited.map((n) => <span key={`e${n}`} className="chip edited" onClick={() => void preview(e, entries ?? []).then(() => zoomToBlock(n, { select: true }))}>{displayName(n)}</span>)}
-                  {s.renamed.map(([a, b]) => <span key={`r${b}`} className="chip edited">{displayName(a)} → {displayName(b)}</span>)}
-                  {s.removed.map((n) => <span key={`d${n}`} className="chip removed">{displayName(n)}</span>)}
+                  {s.added.map((n) => <span key={`a${n}`} className="chip added" onClick={() => void preview(e, entries ?? []).then(() => zoomToBlock(n, { select: true }))}>+ {labelOf(n)}</span>)}
+                  {s.edited.map((n) => <span key={`e${n}`} className="chip edited" onClick={() => void preview(e, entries ?? []).then(() => zoomToBlock(n, { select: true }))}>{labelOf(n)}</span>)}
+                  {s.renamed.map(([a, b]) => <span key={`r${b}`} className="chip edited">{labelOf(a)} → {labelOf(b)}</span>)}
+                  {s.removed.map((n) => <span key={`d${n}`} className="chip removed">{labelOf(n)}</span>)}
                   {s.layout.length > 0 && (
                     <button className="history-layout" onClick={() => setOpen(open === e.id ? null : e.id)}>
                       {open === e.id ? <ChevronDown size={12} /> : <ChevronRight size={12} />} {s.layout.length === 1 && s.layout[0].length < 48 ? s.layout[0] : `${s.layout.length} layout change${s.layout.length === 1 ? "" : "s"}`}
@@ -747,7 +747,7 @@ export function DiffDialog() {
   const rows = data ? lineDiff(data.then ?? "", data.now ?? "") : [];
   return (
     <Dialog
-      title={`${displayName(d.name)}: then → now`}
+      title={`${labelOf(d.name)}: then → now`}
       icon={<ArrowLeftRight size={18} />}
       onClose={close}
       wide

@@ -49,10 +49,10 @@ import {
 } from "lucide-react";
 import type { CanvasNode, EdgeStyle, Side } from "../../shared/canvas";
 import { edgeEnds, groupMembers } from "../../shared/canvas";
-import { blockLabel, displayName, isTextType } from "../../shared/blocks";
+import { blockLabel, isTextType } from "../../shared/blocks";
 import { PAGES } from "../../shared/drawing";
 import { act, layout } from "../lib/project";
-import { modeOf, previewAll, setChatOpen, setMode, useBoard } from "../lib/store";
+import { labelOf, modeOf, previewAll, setChatOpen, setMode, useBoard } from "../lib/store";
 import { loadLocal, saveLocal, useSettings } from "../lib/settings";
 import { toast } from "../lib/toasts";
 import { Menu, type MenuEntry } from "../components/Menu";
@@ -440,7 +440,7 @@ export function BoardCanvas() {
     if (menu.kind === "image" && menu.replace) {
       const name = menu.replace;
       return [
-        { kind: "heading", label: `Replace ${displayName(name)} with` },
+        { kind: "heading", label: `Replace ${labelOf(name)} with` },
         { label: "An image…", icon: <ImageIcon size={15} />, disabled: locked, onSelect: () => pickImage((f) => void replaceImage(name, { kind: "photo", file: f })) },
         { kind: "swatches", label: "A blank page", icon: <PenLine size={15} />, disabled: locked || isPhone(), colors: PAGES, onPick: (c) => void replaceImage(name, { kind: "color", color: c }) },
       ];
@@ -479,7 +479,7 @@ export function BoardCanvas() {
       const ghost = tt.snap.ghosts.some((g) => g.node.id === menu.id);
       const rev = ghost ? tt.entry.base : tt.entry.id;
       return [
-        { kind: "heading", label: `${displayName(menu.id)} · ${ghost ? "removed here" : "as it was"}` },
+        { kind: "heading", label: `${labelOf(menu.id)} · ${ghost ? "removed here" : "as it was"}` },
         {
           label: "Restore this block",
           icon: <Undo2 size={15} />,
@@ -550,7 +550,7 @@ export function BoardCanvas() {
           label: "Copy name",
           icon: <Copy size={15} />,
           onSelect: () => {
-            void navigator.clipboard?.writeText(displayName(menu.id)).then(() => toast.success(`Copied “${displayName(menu.id)}”`));
+            void navigator.clipboard?.writeText(labelOf(menu.id)).then(() => toast.success(`Copied “${labelOf(menu.id)}”`));
           },
         },
         { label: `Download ${b?.file ?? "file"}`, icon: <Download size={15} />, disabled: !b, onSelect: () => downloadBlock(menu.id) },
@@ -563,7 +563,7 @@ export function BoardCanvas() {
     if (!e) return [];
     const { fromEnd, toEnd } = edgeEnds(e);
     return [
-      { kind: "heading", label: `${displayName(e.fromNode)} → ${displayName(e.toNode)}` },
+      { kind: "heading", label: `${labelOf(e.fromNode)} → ${labelOf(e.toNode)}` },
       {
         label: "Arrowhead at start",
         checked: fromEnd === "arrow",

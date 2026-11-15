@@ -12,7 +12,7 @@ import { displayName, initialContent, isTextType, toBlockName } from "../../shar
 import type { PasteBlock } from "../../shared/protocol";
 import { act, currentSlug, layout } from "../lib/project";
 import { loadLocal, saveLocal } from "../lib/settings";
-import { useBoard } from "../lib/store";
+import { labelOf, useBoard } from "../lib/store";
 import { toast } from "../lib/toasts";
 import { deleteBlocks, flow, placementPoint, recentlyCreated, recordEdit, select } from "./actions";
 import { record } from "./undo";
@@ -67,7 +67,7 @@ export function selectionClip(): Clip | null {
       texts.push(b.content ?? "");
     } else {
       out.push({ ...base, image: { canvas: slug, file: b.file } });
-      texts.push(`[${b.type === "pdf" ? "PDF" : "image"}: ${displayName(n.id)}]`);
+      texts.push(`[${b.type === "pdf" ? "PDF" : "image"}: ${labelOf(n.id)}]`);
     }
   }
   const groups = nodes.filter((n): n is GroupNode => n.type === "group");
@@ -91,7 +91,7 @@ export function copySelection(e: ClipboardEvent, cut: boolean): boolean {
   }
   saveLocal(STORE_KEY, clip);
   const n = clip.blocks.length + clip.groups.length;
-  const what = n === 1 ? displayName(clip.blocks[0]?.from ?? clip.groups[0]?.label ?? "frame") : `${n} items`;
+  const what = n === 1 ? (clip.blocks[0] ? labelOf(clip.blocks[0].from) : displayName(clip.groups[0]?.label ?? "frame")) : `${n} items`;
   if (cut) {
     deleteBlocks(clip.blocks.map((b) => b.from), { skipConfirm: true });
     const groups = clip.groups.map((g) => ({ op: "group.delete" as const, id: g.id }));
@@ -149,7 +149,7 @@ export async function pasteClip(clip: Clip, opts: { offset?: { x: number; y: num
   const names = Object.values(r.names);
   const groupIds = Object.values(r.groups);
   select([...names, ...groupIds]);
-  recordPaste(names, groupIds, opts.label ?? `Paste ${names.length + groupIds.length === 1 ? displayName(names[0] ?? "frame") : `${names.length + groupIds.length} items`}`);
+  recordPaste(names, groupIds, opts.label ?? `Paste ${names.length + groupIds.length === 1 ? (names[0] ? labelOf(names[0]) : "frame") : `${names.length + groupIds.length} items`}`);
   const skipped = clip.blocks.length - names.length;
   if (skipped > 0) toast.info(`${skipped} of the copied blocks no longer exist${skipped === 1 ? "s" : ""} and ${skipped === 1 ? "was" : "were"} left out.`);
 }
@@ -268,7 +268,7 @@ function recordPaste(names: string[], groupIds: string[], label: string): void {
 export async function copyBlockContent(name: string, mode: "raw" | "rendered"): Promise<void> {
   const b = useBoard.getState().blocks[name];
   if (!b || !isTextType(b.type) || b.content === undefined) return;
-  const label = displayName(name);
+  const label = labelOf(name);
   try {
     if (mode === "rendered" && b.type === "markdown" && typeof ClipboardItem !== "undefined") {
       const { html, plain } = await renderForClipboard(b.content);
