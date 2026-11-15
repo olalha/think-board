@@ -390,6 +390,13 @@ export type ClientMessage = { ref?: string } & (
   | { type: "user.layout"; ops: LayoutOp[] }
   | { type: "block.create"; blockType: "markdown" | "mermaid" | "html"; x: number; y: number }
   | { type: "block.delete"; names: string[] }
+  /**
+   * Rename a block → { name, title? }. `to` is a name (`tea-guide`: the file is
+   * renamed, any title cleared) or free text (`Tea guide 🍵`: it becomes the
+   * title, on the block's canvas node, and the file is renamed to the text made
+   * a name, made unique). The same name: only the title changes. `[[links]]` to
+   * the block in Markdown blocks follow.
+   */
   | { type: "block.rename"; name: string; to: string }
   /** Paste copied blocks (and the frames and connections among them) → the new names and group ids by old. */
   | { type: "blocks.paste"; blocks: PasteBlock[]; edges: CanvasEdge[]; groups: GroupNode[] }

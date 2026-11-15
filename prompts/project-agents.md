@@ -75,8 +75,14 @@ create `tea-flowchart.md` next to `tea-flowchart.mmd`.
   the file, then place it next to the block it relates to:
   `think add <file> --near <block>`. (A file you don't place is put next to the
   block worked on last — fine, but a deliberate place is better.)
-- **Renaming** (only when asked): `think rename <block> <new-name>` — the file,
-  its place, links and comments follow.
+- **Titles:** a block can show a free-text title instead of its name (any
+  characters, emoji too): `think rename <block> "Budget 2027 💶"` sets it and
+  renames the file to match (`budget-2027.md`). `think read` lists titles.
+  Rename only when asked; the file, its place, links and comments follow.
+- **Linking to another block** in Markdown: `[[block-name]]` (the file name
+  without the extension), or `[[block-name|text shown]]` — never the title.
+  think keeps these links pointing at the right block when blocks are renamed;
+  a link to a block that does not exist is reported back to you.
 - **Deleting** (only when asked): `think remove <block>`.
 
 ## The layout

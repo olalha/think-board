@@ -7,6 +7,9 @@ How versions and releases work: "Versioning and releases" in
 
 ## Unreleased
 
+- Blocks can have free-text titles (any characters, emoji too): renaming to text keeps it as
+  the title and renames the file to match; `[[block-name]]` links in Markdown blocks follow
+  every rename, and the agent is told about links to blocks that do not exist.
 - The canvas's own agent can ask the user questions with `think ask`: a card in the chat
   with options, an "Other" answer and Skip; the agent waits for the answers.
 - **Fix:** text pasted just after creating a block, or with a fresh block

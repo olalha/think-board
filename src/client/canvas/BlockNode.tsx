@@ -3,7 +3,7 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Handle, NodeResizer, Position, useStore, type NodeProps, type ReactFlowState } from "@xyflow/react";
 import { AlertCircle, BookOpenText, Check, Code2, Eye, FileText, Globe, Image as ImageIcon, Lock, MoreHorizontal, Pencil, PenLine, Shield, Undo2, Workflow, WrapText } from "lucide-react";
-import { BLOCK_SIZES, displayName, isTextType, isValidName, toBlockName, type BlockType } from "../../shared/blocks";
+import { BLOCK_SIZES, blockLabel, displayName, isTextType, isValidName, toBlockName, type BlockType } from "../../shared/blocks";
 import type { BlockInfo } from "../../shared/protocol";
 import { fileUrl } from "../lib/api";
 import { act, layout } from "../lib/project";
@@ -69,6 +69,11 @@ export const BlockNode = memo(function BlockNode({ id, selected, width, height }
   const lastValid = useBoard((s) => s.mermaidLastValid[id]);
   const focusRequest = useBoard((s) => s.focusRequest === id);
   const isProtected = useBoard((s) => s.canvas.nodes.some((n) => n.id === id && n.type === "file" && !!n.protected));
+  const title = useBoard((s) => {
+    const n = s.canvas.nodes.find((x) => x.id === id);
+    return n?.type === "file" ? n.title : undefined;
+  });
+  const label = blockLabel(id, { title });
   // History preview and agent turns are read-only — except protected blocks,
   // which stay the user's to write in while the agent works.
   const locked = liveLocked || !!tt;
@@ -183,7 +188,7 @@ export const BlockNode = memo(function BlockNode({ id, selected, width, height }
         body = <HtmlBody name={id} source={block.content ?? ""} selected={!!selected} width={width} height={height} />;
         break;
       case "image":
-        body = slug ? <ImageView src={tt ? `${fileUrl(slug, block.file)}?rev=${block.hash}` : fileUrl(slug, block.file, block.hash)} alt={displayName(id)} /> : null;
+        body = slug ? <ImageView src={tt ? `${fileUrl(slug, block.file)}?rev=${block.hash}` : fileUrl(slug, block.file, block.hash)} alt={label} /> : null;
         break;
       case "pdf":
         body = slug ? <PdfBody name={id} src={tt ? `${fileUrl(slug, block.file)}?rev=${block.hash}` : fileUrl(slug, block.file, block.hash)} selected={!!selected} width={width} height={height} /> : null;
@@ -234,7 +239,7 @@ export const BlockNode = memo(function BlockNode({ id, selected, width, height }
         ) : (
           <>
             <span className="block-name" title={`${block?.file ?? id} — double-click to zoom in, F2 to rename`}>
-              {displayName(id)}
+              {label}
             </span>
             {!locked && (
               <button

@@ -49,7 +49,7 @@ import {
 } from "lucide-react";
 import type { CanvasNode, EdgeStyle, Side } from "../../shared/canvas";
 import { edgeEnds, groupMembers } from "../../shared/canvas";
-import { displayName, isTextType } from "../../shared/blocks";
+import { blockLabel, displayName, isTextType } from "../../shared/blocks";
 import { PAGES } from "../../shared/drawing";
 import { act, layout } from "../lib/project";
 import { modeOf, previewAll, setChatOpen, setMode, useBoard } from "../lib/store";
@@ -507,7 +507,7 @@ export function BoardCanvas() {
       const b = useBoard.getState().blocks[menu.id];
       const lastValid = useBoard.getState().mermaidLastValid[menu.id];
       const isProtected = cnode?.type === "file" && !!cnode.protected;
-      const items: MenuEntry[] = [{ kind: "heading", label: displayName(menu.id) }];
+      const items: MenuEntry[] = [{ kind: "heading", label: blockLabel(menu.id, cnode?.type === "file" ? cnode : undefined) }];
       if (b && isTextType(b.type)) {
         const raw = modeOf(menu.id, b.type) === "raw";
         items.push({

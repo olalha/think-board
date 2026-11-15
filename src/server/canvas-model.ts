@@ -9,7 +9,7 @@
 //                     place files without nodes, snap everything to the grid.
 
 import { z } from "zod";
-import { BLOCK_SIZES, displayName, type BlockType } from "../shared/blocks.js";
+import { BLOCK_SIZES, blockLabel, cleanTitle, type BlockType } from "../shared/blocks.js";
 import { serializeCanvas, type Canvas, type CanvasEdge, type CanvasNode, type CanvasView, type FileNode, type GroupNode } from "../shared/canvas.js";
 import type { ValidationIssue } from "../shared/protocol.js";
 
@@ -20,6 +20,8 @@ const fileNodeSchema = z.object({
   id: z.string().min(1),
   type: z.literal("file"),
   file: z.string().min(1),
+  // Any text: reconciliation makes it one trimmed line of at most MAX_TITLE characters.
+  title: z.string().optional(),
   x: z.number(),
   y: z.number(),
   width: z.number().positive(),
@@ -204,7 +206,8 @@ export function matchRenames(gone: readonly RenameCandidate[], appeared: readonl
 
 /** Rename a node everywhere it is referenced (node id and file, edge ends). */
 export function renameInCanvas(canvas: Canvas, from: string, to: string, file: string): Canvas {
-  const retarget = (v: CanvasView): CanvasView => (v.target === from ? { ...v, target: to, ...(v.followName ? { name: displayName(to) } : {}) } : v);
+  const node = canvas.nodes.find((n): n is FileNode => n.id === from && n.type === "file");
+  const retarget = (v: CanvasView): CanvasView => (v.target === from ? { ...v, target: to, ...(v.followName ? { name: blockLabel(to, node) } : {}) } : v);
   return {
     ...canvas,
     nodes: canvas.nodes.map((n) => (n.id === from && n.type === "file" ? { ...n, id: to, file } : n)),
@@ -395,7 +398,11 @@ export function reconcileCanvas(
       removed.push(n.id);
       continue;
     }
-    nodes.push(snapNode({ ...n, type: "file", file: block.file }, block.type, grid));
+    const node: FileNode = { ...n, type: "file", file: block.file };
+    const title = cleanTitle(n.title);
+    if (title) node.title = title;
+    else delete node.title;
+    nodes.push(snapNode(node, block.type, grid));
   }
   const fileNodes = () => nodes.filter((n): n is FileNode => n.type === "file");
 
@@ -470,7 +477,7 @@ export function reconcileCanvas(
       // A view about a node keeps its name in step with the node's (a missing
       // target is kept: the block may come back, e.g. an undone delete).
       const t = v.target ? byId.get(v.target) : undefined;
-      if (t && v.followName) v.name = t.type === "group" ? t.label?.trim() || "Untitled group" : displayName(t.id);
+      if (t && v.followName) v.name = t.type === "group" ? t.label?.trim() || "Untitled group" : blockLabel(t.id, t);
       if (!v.target) delete v.followName;
       out.push(v);
     }

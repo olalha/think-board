@@ -97,6 +97,29 @@ describe("an outside agent's think command", () => {
     return { think, fails, slug: runtime.slug };
   }
 
+  it("renames by title and by moving a file under the lock; links follow in its own commit", async () => {
+    const { think, slug } = await guestSetup();
+    const g = ["--as", "planner"];
+    await send(h!, { type: "block.create", blockType: "markdown", x: 0, y: 0 }); // harry
+    await send(h!, { type: "block.create", blockType: "markdown", x: 600, y: 0 }); // bob
+    await send(h!, { type: "block.create", blockType: "markdown", x: 1200, y: 0 }); // tom
+    await send(h!, { type: "user.edit", name: "harry", content: "[[bob]] and [[tom|Tom]]\n" });
+    await think("lock", slug, "renaming", ...g);
+    const r = await think("rename", "bob", "Budget 💶", ...g);
+    expect(r.stdout).toContain("Renamed “Bob” to “Budget 💶”, file budget.md");
+    expect((await readCanvas(h!)).nodes.find((n: { id: string }) => n.id === "budget")).toMatchObject({ title: "Budget 💶" });
+    await fs.rename(path.join(h!.dir, "tom.md"), path.join(h!.dir, "timeline.md"));
+    await waitFor(() => h!.messages.some((m) => m.type === "block.renamed" && m.from === "tom" && m.to === "timeline"), "the moved file to be seen as a rename");
+    // Nothing is written under a working agent: the links follow when it unlocks.
+    expect(await fs.readFile(path.join(h!.dir, "harry.md"), "utf8")).toBe("[[bob]] and [[tom|Tom]]\n");
+    expect((await think("read", ...g)).stdout).toContain("“Budget 💶”");
+    await think("unlock", "renamed", ...g);
+    expect(await fs.readFile(path.join(h!.dir, "harry.md"), "utf8")).toBe("[[budget]] and [[timeline|Tom]]\n");
+    expect((await git(h!.dir, ["log", "-1", "--format=%an"])).trim()).toBe("planner");
+    expect((await git(h!.dir, ["show", "--name-only", "--format=", "HEAD"])).trim()).toContain("harry.md");
+    expect((await git(h!.dir, ["status", "--porcelain"])).trim()).toBe("");
+  });
+
   it("joins (a tab), needs the lock to change anything, lays out the canvas, and is committed under its name", async () => {
     const { think, fails, slug } = await guestSetup();
     const g = ["--as", "planner"];

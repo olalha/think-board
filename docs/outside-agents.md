@@ -35,6 +35,11 @@ The canvas's own agent only
   ask
 ```
 
+`think rename <block> "Title"` gives a block a free-text title and renames its file
+to match; Markdown blocks link to each other with `[[block-name]]`, and think rewrites
+those links whenever a block's file is renamed — for an outside agent, when it unlocks,
+in its own commit.
+
 ## Outside agents, step by step
 
 - `think join <canvas> --as NAME [--about "Claude Code in a terminal"] ["why"]`:

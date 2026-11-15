@@ -76,6 +76,44 @@ export function displayName(name: string): string {
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
+/** The longest a block's title may be, in characters. */
+export const MAX_TITLE = 120;
+
+/**
+ * A block title as stored: one line (line breaks become spaces), trimmed, at
+ * most MAX_TITLE characters. Undefined when nothing is left.
+ */
+export function cleanTitle(input: unknown): string | undefined {
+  if (typeof input !== "string") return undefined;
+  const one = input.replace(/\s*[\r\n\u2028\u2029]+\s*/g, " ").replace(/\t/g, " ").trim();
+  if (!one) return undefined;
+  const chars = Array.from(one);
+  return chars.length > MAX_TITLE ? chars.slice(0, MAX_TITLE).join("").trimEnd() : one;
+}
+
+/**
+ * What people see as a block's name: its free-text title when it has one
+ * (stored on its canvas node), else the name made readable (`displayName`).
+ * Server and client both label blocks with this.
+ */
+export function blockLabel(name: string, node?: { title?: string } | null): string {
+  return node?.title || displayName(name);
+}
+
+/**
+ * What renaming a block to `text` means: the file name it gets
+ * (`toBlockName(text)`, or `current` when nothing usable is left, e.g. only
+ * emoji) and the title it keeps — none when `text` is just the name (`tea-notes`)
+ * or the name made readable (`Tea notes`). Null when `text` is empty.
+ */
+export function renameTarget(text: string, current: string): { name: string; title?: string } | null {
+  const title = cleanTitle(text);
+  if (!title) return null;
+  if (isValidName(title)) return { name: title };
+  const name = toBlockName(title) || current;
+  return title === displayName(name) ? { name } : { name, title };
+}
+
 /**
  * Turn what someone typed as a block name into a valid one:
  * `Tea Flowchart!` → `tea-flowchart`. Returns "" when nothing usable is left.

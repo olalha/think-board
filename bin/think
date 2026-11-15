@@ -70,7 +70,7 @@ The canvas
   think unlink <a> <b>
   think frame "Label" <block…>         draw a frame around blocks (or grow one to hold them)
   think unframe "Label"                remove a frame; its blocks stay
-  think rename <block> <new-name>      the file, its place, links and comments follow
+  think rename <block> "<Title>"       retitle; the file, place, links and [[links]] follow
   think remove <block…>                delete blocks (History keeps them)
   think view add "Name" <block|frame…> · think view remove "Name"
   think comments [--open] [--json]     the user's comments
@@ -173,10 +173,14 @@ think unframe "Label"
 EOF
     ;;
     rename) cat <<'EOF'
+think rename <block> "<Title>"
 think rename <block> <new-name>
-  Rename a block: the file (keeping its type), its place, its links, its
-  comments and its drawing follow. Names are lowercase letters, digits and
-  hyphens. Only rename when the user asks.
+  Rename a block. Free text ("Budget 2027 💶": any characters, one line, up to
+  120) becomes its title, shown as its name; its file is renamed to the text
+  made a name (budget-2027.md, or budget-2027-2.md when that is taken). A plain
+  name (budget) renames the file and clears any title. The file keeps its type;
+  its place, links, comments and drawing follow, and so do the [[budget]] links
+  to it in Markdown blocks. Only rename when the user asks.
 EOF
     ;;
     remove) cat <<'EOF'
