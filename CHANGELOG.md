@@ -7,6 +7,8 @@ How versions and releases work: "Versioning and releases" in
 
 ## Unreleased
 
+- The canvas's own agent can ask the user questions with `think ask`: a card in the chat
+  with options, an "Other" answer and Skip; the agent waits for the answers.
 - **Fix:** text pasted just after creating a block, or with a fresh block
   selected, goes into that block instead of also becoming a new one.
 - **Fix:** the font size setting (now "Text size", 12–17) also sizes rendered

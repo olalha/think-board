@@ -157,6 +157,22 @@ export interface ValidationReport {
   final: boolean;
 }
 
+/** One question the canvas agent asks the user (`think ask`). The UI always adds an "Other" answer. */
+export interface AskQuestion {
+  question: string;
+  /** A short chip shown above the question (12 characters at most). */
+  header?: string;
+  options: { label: string; description?: string }[];
+  /** Checkboxes (pick any) instead of radio buttons (pick one). */
+  multiSelect?: boolean;
+}
+
+/** The user's answer to one question: the option labels picked, and/or their own text. */
+export interface AskAnswer {
+  selected: string[];
+  other?: string;
+}
+
 export type ChatEntry =
   | {
       kind: "user";
@@ -190,6 +206,19 @@ export type ChatEntry =
       options: { optionId: string; name: string; kind: string }[];
       /** Set once answered: the chosen option name, or "cancelled". */
       outcome?: string;
+    }
+  /**
+   * Questions the canvas agent asked with `think ask`; its command waits for the
+   * answer. `id` is the question's id (`think ask --wait <id>`). Set once settled:
+   * `outcome`, and for "answered" the `answers` (one per question, in order).
+   */
+  | {
+      kind: "question";
+      id: string;
+      ts: number;
+      questions: AskQuestion[];
+      outcome?: "answered" | "skipped" | "cancelled";
+      answers?: AskAnswer[];
     }
   | { kind: "system"; id: string; ts: number; level: "info" | "warning" | "error"; text: string; detail?: string }
   /** A message from an outside agent (posted with `think say`). */
@@ -375,6 +404,8 @@ export type ClientMessage = { ref?: string } & (
   | { type: "agent.prompt"; text: string }
   | { type: "agent.cancel" }
   | { type: "agent.permission"; requestId: string; optionId: string | null }
+  /** Answer the agent's questions (a `question` entry's id), one answer per question; null skips them. */
+  | { type: "agent.answer"; questionId: string; answers: AskAnswer[] | null }
   | { type: "agent.restart" }
   | { type: "agent.newSession" }
   /** Switch the canvas to another provider's agent, in a new conversation. */
