@@ -401,10 +401,14 @@ export function BoardCanvas() {
   // Dropped on empty canvas: nothing changes.
   const onReconnectEnd = useCallback(
     (ev: MouseEvent | TouchEvent, edge: Edge, handleType: "source" | "target", state: FinalConnectionState) => {
-      if (reconnected.current || state.isValid || !state.toNode || useBoard.getState().lock.locked) return;
+      if (reconnected.current || state.isValid || useBoard.getState().lock.locked) return;
       const pt = "changedTouches" in ev ? ev.changedTouches[0] : ev;
       if (!pt) return;
-      const internal = rf.getInternalNode(state.toNode.id);
+      // React Flow names a node only near one of its handles; otherwise find the block under the pointer.
+      const under = document.elementsFromPoint(pt.clientX, pt.clientY).find((el) => el.closest(".react-flow__node-block"));
+      const toId = state.toNode?.id ?? under?.closest(".react-flow__node-block")?.getAttribute("data-id");
+      if (!toId) return;
+      const internal = rf.getInternalNode(toId);
       if (!internal) return;
       const p = rf.screenToFlowPosition({ x: pt.clientX, y: pt.clientY });
       const w = internal.measured.width ?? 1;
@@ -413,7 +417,8 @@ export function BoardCanvas() {
       const y = (p.y - internal.internals.positionAbsolute.y) / h;
       const dist: [Side, number][] = [["left", x], ["right", 1 - x], ["top", y], ["bottom", 1 - y]];
       dist.sort((a, b) => a[1] - b[1]);
-      reattach(edge.id, handleType, state.toNode.id, dist[0][0]);
+      // `handleType` is the end that stays put; the dragged end is the other one.
+      reattach(edge.id, handleType === "source" ? "target" : "source", toId, dist[0][0]);
     },
     [rf, reattach],
   );
