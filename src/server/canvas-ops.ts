@@ -5,7 +5,7 @@
 // written atomically).
 
 import { BLOCK_SIZES, displayName, parseBlockFile, toBlockName, type BlockType } from "../shared/blocks.js";
-import { EDGE_STYLES, groupMembers, type Canvas, type CanvasEdge, type CanvasNode, type CanvasView, type EdgeStyle, type FileNode, type GroupNode } from "../shared/canvas.js";
+import { EDGE_STYLES, SIDES, groupMembers, type Canvas, type CanvasEdge, type CanvasNode, type CanvasView, type EdgeStyle, type FileNode, type GroupNode, type Side } from "../shared/canvas.js";
 import { findFreeSlot, GROUP_MIN, snap, snapSize } from "./canvas-model.js";
 
 /** A refusal or a mistake in a command, told to the caller as it is. */
@@ -260,12 +260,17 @@ export interface LinkOptions {
   label?: string;
   style?: EdgeStyle;
   arrow?: Arrow;
+  fromSide?: Side;
+  toSide?: Side;
 }
 
 /** Connect two nodes (from → to), or update the connection they already have. */
 export function linkNodes(canvas: Canvas, from: CanvasNode, to: CanvasNode, opts: LinkOptions): { canvas: Canvas; edge: CanvasEdge; created: boolean } {
   if (from.id === to.id) throw new OpError("A block cannot be connected to itself.");
   if (opts.style && !EDGE_STYLES.includes(opts.style)) throw new OpError(`--style is solid, dashed or dotted.`);
+  for (const [flag, v] of [["--from-side", opts.fromSide], ["--to-side", opts.toSide]] as const) {
+    if (v !== undefined && !SIDES.includes(v)) throw new OpError(`${flag} is top, right, bottom or left (got “${v}”).`);
+  }
   const apply = (e: CanvasEdge): CanvasEdge => {
     const out = { ...e };
     if (opts.label !== undefined) {
@@ -283,6 +288,8 @@ export function linkNodes(canvas: Canvas, from: CanvasNode, to: CanvasNode, opts
       if (opts.arrow === "none") out.toEnd = "none";
       else delete out.toEnd;
     }
+    if (opts.fromSide) out.fromSide = opts.fromSide;
+    if (opts.toSide) out.toSide = opts.toSide;
     return out;
   };
   const existing = canvas.edges.find((e) => e.fromNode === from.id && e.toNode === to.id);

@@ -101,6 +101,16 @@ describe("frames, links and views", () => {
     expect(() => linkNodes(c, c.nodes[0], c.nodes[0], {})).toThrow(OpError);
   });
 
+  it("sets the sides an arrow attaches to, on a new or an existing link, and rejects a bad side", () => {
+    const c = canvas(block("a", 0, 0), block("b", 400, 0));
+    const one = linkNodes(c, c.nodes[0], c.nodes[1], { fromSide: "bottom", toSide: "top" });
+    expect(one.edge).toMatchObject({ fromSide: "bottom", toSide: "top" });
+    const two = linkNodes(one.canvas, c.nodes[0], c.nodes[1], { toSide: "left", label: "x" });
+    expect(two.created).toBe(false);
+    expect(two.edge).toMatchObject({ fromSide: "bottom", toSide: "left", label: "x" });
+    expect(() => linkNodes(c, c.nodes[0], c.nodes[1], { fromSide: "middle" as never })).toThrow(/--from-side is top, right, bottom or left/);
+  });
+
   it("saves a view around nodes (following one node), and updates it by name", () => {
     const c = canvas(block("a", 0, 0), block("b", 400, 0));
     const v = saveView(c, "Start", [c.nodes[0]], G);

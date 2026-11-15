@@ -9,7 +9,7 @@
 // the commands that change something only while it holds the canvas lock.
 
 import { displayName, parseBlockFile, type BlockType } from "../shared/blocks.js";
-import type { Canvas, CanvasNode, EdgeStyle, GroupNode } from "../shared/canvas.js";
+import type { Canvas, CanvasNode, EdgeStyle, GroupNode, Side } from "../shared/canvas.js";
 import type { Comment } from "../shared/protocol.js";
 import { MAX_COMMENT } from "./comments.js";
 import {
@@ -218,17 +218,19 @@ export async function runCommand(host: CommandHost, caller: Caller, req: Command
     }
 
     case "link": {
-      const usage = `think link <from> <to> [--label "…"] [--style solid|dashed|dotted] [--arrow end|both|none]`;
+      const usage = `think link <from> <to> [--label "…"] [--style solid|dashed|dotted] [--arrow end|both|none] [--from-side top|right|bottom|left] [--to-side top|right|bottom|left]`;
       if (a.length !== 2) throw new OpError(`Link which two? ${usage}`);
       const from = findNode(view, blockRef(a[0]));
       const to = findNode(view, blockRef(a[1]));
       const style = opt(req, "style");
       const arrow = opt(req, "arrow");
       if (arrow && !["end", "both", "none"].includes(arrow)) throw new OpError("--arrow is end (the default), both or none.");
+      const fromSide = opt(req, "from-side");
+      const toSide = opt(req, "to-side");
       const label = req.opts.label === true ? "" : opt(req, "label");
-      const r = linkNodes(view, from, to, { label, style: style as EdgeStyle | undefined, arrow: arrow as Arrow | undefined });
+      const r = linkNodes(view, from, to, { label, style: style as EdgeStyle | undefined, arrow: arrow as Arrow | undefined, fromSide: fromSide as Side | undefined, toSide: toSide as Side | undefined });
       await host.setLayout(r.canvas, [from.id, to.id]);
-      const bits = [r.edge.label ? `“${r.edge.label}”` : "", r.edge.style ?? "", r.edge.fromEnd === "arrow" ? "arrows both ends" : r.edge.toEnd === "none" ? "no arrow" : ""].filter(Boolean);
+      const bits = [r.edge.label ? `“${r.edge.label}”` : "", r.edge.style ?? "", r.edge.fromEnd === "arrow" ? "arrows both ends" : r.edge.toEnd === "none" ? "no arrow" : "", r.edge.fromSide ? `from ${r.edge.fromSide}` : "", r.edge.toSide ? `to ${r.edge.toSide}` : ""].filter(Boolean);
       return `${r.created ? "Linked" : "Updated the link"} ${nodeTitle(from)} → ${nodeTitle(to)}${bits.length ? ` (${bits.join(", ")})` : ""}.`;
     }
 

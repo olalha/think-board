@@ -5,6 +5,11 @@ before 1.0, a minor version may change things that are not backwards compatible.
 How versions and releases work: "Versioning and releases" in
 [docs/development.md](docs/development.md).
 
+## Unreleased
+
+- `think link` takes `--from-side` and `--to-side` (top, right, bottom or left) to choose
+  where an arrow attaches to each block, on a new or an existing link.
+
 ## 0.6.4
 
 - **Security:** Node 24.22.3 in both containers (fixes for HTTP/2 and TLS).
