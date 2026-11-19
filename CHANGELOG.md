@@ -5,7 +5,7 @@ before 1.0, a minor version may change things that are not backwards compatible.
 How versions and releases work: "Versioning and releases" in
 [docs/development.md](docs/development.md).
 
-## Unreleased
+## 0.7.3
 
 - **Deploy:** `deploy/compose.platform.yml` for Dokploy, Coolify and similar: named
   volumes, no published port, resource limits, the image pinned by version and digest.
