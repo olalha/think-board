@@ -1,0 +1,97 @@
+# think — for a hosting platform that runs a compose file and puts its own proxy
+# in front (Dokploy, Coolify and similar). Unlike deploy/compose.yml it uses
+# named volumes (no host folder) and publishes no port: the platform's proxy
+# reaches the `think` service on port 8080 over its own network. See
+# "Dokploy, Coolify and similar" in docs/install.md.
+#
+# Set on the platform:
+#   THINK_PUBLIC_URL  required — the https:// address people open (for links)
+#   TZ, PUID, PGID    optional — time zone; the ids think's files belong to
+#   THINK_IMAGE       optional — another image than the one pinned below
+#   ANTHROPIC_API_KEY / OPENAI_API_KEY   optional — API-key mode (docs/config.md)
+#
+# The image is pinned by version AND digest, so a redeploy never picks up a
+# different build. To update: get the new version's digest with
+# `docker buildx imagetools inspect ghcr.io/olalha/think-board:X.Y.Z` (the
+# "Digest:" line) and change both here — or set THINK_IMAGE.
+#
+# What think keeps (back up all three volumes; see docs/install.md):
+#   data     the canvases, one git repository each, with their chat logs
+#   logins   each agent provider's isolated home and login       (secret)
+#   state    .auth/ (the app password's hash and session key — secret),
+#            guests/, and optional config/ and prompts/ overrides
+name: think
+
+x-common: &common
+  image: ${THINK_IMAGE:-ghcr.io/olalha/think-board:0.7.2@sha256:216c86cde4787ec09c75a5d8deb3d727b19336e913a69dda16f9d1ee2fbde79c}
+  init: true
+  restart: unless-stopped
+  security_opt: ["no-new-privileges:true"]
+  stop_grace_period: 15s
+
+services:
+  think:
+    <<: *common
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-UTC}
+      THINK_RUNNER_SOCKET: /run/think/runner.sock
+      THINK_PUBLIC_URL: ${THINK_PUBLIC_URL:?set THINK_PUBLIC_URL to the https:// address people open}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    volumes:
+      - state:/projects
+      - data:/projects/data
+      - logins:/projects/.agents
+      - run:/run/think
+    networks: [web]
+    depends_on:
+      agents:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/api/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    # Idle it uses about 200 MB; PDFs and big canvases need more.
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 1g }
+
+  agents:
+    <<: *common
+    command: ["node", "dist/node/server/agent/runner.js"]
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-UTC}
+      THINK_RUNNER_SOCKET: /run/think/runner.sock
+    volumes:
+      - data:/projects/data
+      - logins:/projects/.agents
+      - run:/run/think
+    networks: [agents]
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('net').connect('/run/think/runner.sock').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    # The agents' CLIs and the commands they run: raise this for heavy work.
+    deploy:
+      resources:
+        limits: { cpus: "2.0", memory: 3g }
+
+networks:
+  web: {}
+  # The agents' network reaches the internet (the model APIs) and nothing else
+  # of this stack. Don't attach the platform's network to it.
+  agents: {}
+
+volumes:
+  state: {}
+  data: {}
+  logins: {}
+  run: {}

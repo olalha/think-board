@@ -79,21 +79,36 @@ so links from the `think` command (`think new`, `think url`) point there.
 
 ### Dokploy, Coolify and similar
 
-These run a compose file and put their own proxy in front:
+These run a compose file and put their own proxy in front. Use
+`deploy/compose.platform.yml`: named volumes instead of a host folder, no
+published port, resource limits, and the image pinned by version and digest.
 
 1. Create a **Docker Compose** application from this repository (compose path
-   `deploy/compose.yml`), or paste that file in.
+   `deploy/compose.platform.yml`), or paste that file in.
 2. Add a domain for the service **`think`**, port **8080**.
-3. Set the environment: at least `THINK_PUBLIC_URL=https://<your domain>`, and
-   `PUID`/`PGID` if the data folder should belong to a particular user.
-4. Point `THINK_DATA` at a folder on the host, e.g. `/srv/think` — one folder
-   for both services. Volume backups of these platforms often skip bind
-   mounts: back up that folder yourself.
-5. Deploy, then set the app password (below) before you share the URL —
-   or put the platform's authentication in front.
+3. Set the environment: `THINK_PUBLIC_URL=https://<your domain>` (required),
+   and optionally `TZ`, `PUID`/`PGID`, or `THINK_IMAGE` for another version.
+4. Deploy, then set the app password (below) before you share the URL —
+   or put the platform's authentication in front. Inside the platform's
+   container: `docker exec -it -u think <think container> bin/set-password --local`.
+5. Back up the three volumes:
 
-The loopback port in the compose file is harmless there; the platform's proxy
-reaches the container over its own network.
+   | Volume | Holds |
+   |---|---|
+   | `data` | the canvases (git repositories) and their chat logs |
+   | `logins` | each agent provider's home and login — secret |
+   | `state` | `.auth/` (the password's hash and session key — secret), `guests/`, `config/`, `prompts/` |
+
+   For a consistent copy, stop both services, archive the volumes keeping
+   owners and modes, and start them again. To restore, fill the volumes the
+   same way before the first start. Restoring `logins` and `state` too keeps
+   the agents' sign-ins and the app password.
+
+**To update,** change the version and digest in the file (its header says
+where to find the digest), or set `THINK_IMAGE`, and redeploy.
+
+The agents' network must stay internet-only: attach the platform's network
+to `think` alone, which the platform does when you add the domain.
 
 ## Set the app password
 
