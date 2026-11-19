@@ -23,7 +23,7 @@
 name: think
 
 x-common: &common
-  image: ${THINK_IMAGE:-ghcr.io/olalha/think-board:0.7.2@sha256:216c86cde4787ec09c75a5d8deb3d727b19336e913a69dda16f9d1ee2fbde79c}
+  image: ${THINK_IMAGE:-ghcr.io/olalha/think-board:0.7.3@sha256:b184a5a24df101b03314f631f0f90f4167e8f67d8c26ce9e18e6321a9ae9aab9}
   init: true
   restart: unless-stopped
   security_opt: ["no-new-privileges:true"]
