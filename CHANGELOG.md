@@ -5,6 +5,12 @@ before 1.0, a minor version may change things that are not backwards compatible.
 How versions and releases work: "Versioning and releases" in
 [docs/development.md](docs/development.md).
 
+## Unreleased
+
+- **Deploy:** `deploy/compose.platform.yml` for Dokploy, Coolify and similar: named
+  volumes, no published port, resource limits, the image pinned by version and digest.
+  `docs/install.md` says how to set it up, back it up and update it.
+
 ## 0.7.2
 
 - **Security:** @hono/node-server 2.1.8 and hono 4.13.18 (used by the agent adapters' MCP

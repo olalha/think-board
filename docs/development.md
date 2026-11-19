@@ -93,6 +93,10 @@ GitHub release `vX.Y.Z` (and with it the tag) with that section as its notes. If
 the build fails, fix it in a pull request without changing the version — the
 merge retries — or use *Run workflow* on the Release workflow.
 
+After a release, a pull request moves `deploy/compose.platform.yml` to the new
+version and its digest (`docker buildx imagetools inspect
+ghcr.io/olalha/think-board:X.Y.Z`, the "Digest:" line).
+
 Nobody pushes release tags by hand, and only merged code is ever released. A
 released version is never changed: its tag can't be moved or deleted, and a
 mistake gets a new patch release.
